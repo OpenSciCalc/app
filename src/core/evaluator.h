@@ -183,6 +183,7 @@ public:
     bool hasUserUnit(const QString&) const;
     const UserUnit* getUserUnit(const QString&) const;
     void setAllowGlobalUserDefinitionsOverride(bool allow);
+    void setSkipUserFunctionDryRun(bool skip);
     void clearGlobalUserDefinitionRegistry();
     void registerGlobalUserVariable(const QString& id);
     void registerGlobalUserFunction(const QString& name);
@@ -226,6 +227,11 @@ private:
     // When true, global definitions may replace previously-tagged global symbols.
     // Keep false for normal editor/session evaluation so globals stay immutable.
     bool m_allowGlobalUserDefinitionsOverride;
+    // One-shot gate used when restoring saved user functions: compile the
+    // definition without the placeholder dry run of its body, which needs
+    // every referenced unit to exist already (e.g. global units are applied
+    // only after a session is restored).
+    bool m_skipUserFunctionDryRun;
     const Quantity& checkOperatorResult(const Quantity&);
     static QString stringFromFunctionError(Function*);
     Quantity exec(const QVector<Opcode>& opcodes,

@@ -5096,6 +5096,7 @@ void Evaluator::setExpression(const QString& expr)
     m_interpretedExpression = QString();
     m_hasImplicitMultiplication = false;
     m_allowGlobalUserDefinitionsOverride = false;
+    m_skipUserFunctionDryRun = false;
 }
 
 QString Evaluator::expression() const
@@ -5139,6 +5140,7 @@ void Evaluator::reset()
     m_functionsInUse.clear();
     m_hasImplicitMultiplication = false;
     m_allowGlobalUserDefinitionsOverride = false;
+    m_skipUserFunctionDryRun = false;
 }
 
 QString Evaluator::error() const
@@ -7174,6 +7176,9 @@ Quantity Evaluator::evalNoAssign()
             m_interpretedExpression += QStringLiteral(" ? ") + trailingComment;
     }
 
+    if (m_assignFunc && m_skipUserFunctionDryRun)
+        return CMath::nan();
+
     result = exec(m_codes, m_constants, m_identifiers);
     return result;
 }
@@ -8473,6 +8478,12 @@ void Evaluator::setAllowGlobalUserDefinitionsOverride(bool allow)
     // See m_allowGlobalUserDefinitionsOverride in evaluator.h for intent.
     // Only the User Definitions import/apply path should enable this.
     m_allowGlobalUserDefinitionsOverride = allow;
+}
+
+void Evaluator::setSkipUserFunctionDryRun(bool skip)
+{
+    // See m_skipUserFunctionDryRun in evaluator.h for intent.
+    m_skipUserFunctionDryRun = skip;
 }
 
 void Evaluator::clearGlobalUserDefinitionRegistry()

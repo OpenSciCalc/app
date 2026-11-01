@@ -569,6 +569,9 @@ void Session::addUserFunction(const UserFunction &func)
         if (!func.description().isEmpty())
             expression += " ? " + func.description();
         evaluator()->setExpression(expression);
+        // The function was checked when it was defined, and units it refers
+        // to may not exist yet (e.g. global units are applied afterwards).
+        evaluator()->setSkipUserFunctionDryRun(true);
         evaluator()->eval();
     } else {
         evaluator()->symbolContext().functions().add(func);

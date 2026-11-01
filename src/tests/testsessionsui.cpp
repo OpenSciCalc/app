@@ -72,6 +72,8 @@ private slots:
     void restored_history_preserves_limits_and_merge_order();
     void restored_history_entries_replace_saved_fields();
     void restored_history_keeps_complex_and_quantity_results();
+    void restored_functions_resolve_session_user_units();
+    void restored_functions_resolve_global_user_units();
     void quantity_copies_preserve_shared_dimensions();
     void startup_deserialization_reports_history_phases();
     void startup_batched_timings_finish_after_flush();
@@ -719,6 +721,58 @@ void TestSessionsUi::restored_history_keeps_complex_and_quantity_results()
         QCOMPARE(freshJson, saved);
         QCOMPARE(reusedJson, saved);
     }
+}
+
+void TestSessionsUi::restored_functions_resolve_session_user_units()
+{
+    Session source;
+    Evaluator* evaluator = source.evaluator();
+    for (const QString& expression : {QStringLiteral("[example]=10[K]"),
+                                      QStringLiteral("kelvins(x)=x*1[K] in [example]")}) {
+        evaluator->setExpression(expression);
+        evaluator->eval();
+        QVERIFY2(evaluator->error().isEmpty(), qPrintable(evaluator->error()));
+    }
+    QJsonObject saved;
+    source.serialize(saved);
+
+    Session restored;
+    QVERIFY(restored.deSerialize(saved, false));
+    QVERIFY(restored.hasUserUnit(QStringLiteral("example")));
+    QVERIFY(restored.hasUserFunction(QStringLiteral("kelvins")));
+}
+
+void TestSessionsUi::restored_functions_resolve_global_user_units()
+{
+    Session source;
+    Evaluator* evaluator = source.evaluator();
+    for (const QString& expression : {QStringLiteral("[example]=10[K] ? Global User Unit"),
+                                      QStringLiteral("kelvins(x)=x*1[K] in [example]")}) {
+        evaluator->setExpression(expression);
+        evaluator->eval();
+        QVERIFY2(evaluator->error().isEmpty(), qPrintable(evaluator->error()));
+    }
+    QJsonObject saved;
+    source.serialize(saved);
+    QVERIFY(saved.value(QStringLiteral("units")).toArray().isEmpty());
+
+    // Global definitions are applied only after the session is restored.
+    Session restored;
+    QVERIFY(restored.deSerialize(saved, false));
+    QVERIFY(restored.hasUserFunction(QStringLiteral("kelvins")));
+    QCOMPARE(restored.UserFunctionsToList().first().interpretedExpression(),
+             source.UserFunctionsToList().first().interpretedExpression());
+    evaluator = restored.evaluator();
+    evaluator->setExpression(QStringLiteral("kelvins(2)"));
+    evaluator->eval();
+    QVERIFY(!evaluator->error().isEmpty());
+    evaluator->setExpression(QStringLiteral("[example]=10[K] ? Global User Unit"));
+    evaluator->eval();
+    evaluator->setExpression(QStringLiteral("kelvins(20)"));
+    const Quantity result = evaluator->eval();
+    QVERIFY2(evaluator->error().isEmpty(), qPrintable(evaluator->error()));
+    evaluator->setExpression(QStringLiteral("20[K]"));
+    QCOMPARE(result, evaluator->eval());
 }
 
 void TestSessionsUi::quantity_copies_preserve_shared_dimensions()
