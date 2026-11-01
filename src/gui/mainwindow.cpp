@@ -7915,6 +7915,11 @@ void MainWindow::createKeypad()
     m_widgets.keypad->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_layouts.root->addWidget(m_widgets.keypadContainer, 0);
 
+    // show() polishes the container and every button first. Polish them
+    // explicitly so the report separates styling from showing the widgets.
+    step.next("Polish keypad buttons");
+    m_widgets.keypadContainer->ensurePolished();
+    step.next("Show keypad");
     m_widgets.keypadContainer->show();
     m_widgets.keypad->show();
     // The theme palette has its own appearance phase.
