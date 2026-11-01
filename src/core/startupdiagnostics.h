@@ -115,6 +115,19 @@ inline int widgetId(State& state, const QObject* widget)
     state.widgetIds.insert(widget, id);
     return id;
 }
+
+inline int phaseIndex(State& state, const char* name, qint64 startNs)
+{
+    const bool worker = QCoreApplication::instance()
+        && QThread::currentThread() != QCoreApplication::instance()->thread();
+    const QString label = QString::fromLatin1(name);
+    for (int i = 0; i < state.phases.size(); ++i) {
+        if (state.phases[i].name == label && state.phases[i].worker == worker)
+            return i;
+    }
+    state.phases.append(Phase{label, worker, startNs});
+    return state.phases.size() - 1;
+}
 }
 
 inline void begin()
@@ -192,19 +205,7 @@ private:
             return;
         m_generation = state.generation;
         m_startNs = state.clock.nsecsElapsed();
-        const bool worker = QCoreApplication::instance()
-            && QThread::currentThread() != QCoreApplication::instance()->thread();
-        const QString label = QString::fromLatin1(name);
-        for (int i = 0; i < state.phases.size(); ++i) {
-            if (state.phases[i].name == label && state.phases[i].worker == worker) {
-                m_index = i;
-                break;
-            }
-        }
-        if (m_index < 0) {
-            m_index = state.phases.size();
-            state.phases.append(Phase{label, worker, m_startNs});
-        }
+        m_index = Detail::phaseIndex(state, name, m_startNs);
         ++state.phases[m_index].running;
         ++state.openScopes;
     }
@@ -479,6 +480,31 @@ inline void appearanceAssignment(QObject* widget, bool palette, bool changed, bo
         ++assignment.unchanged;
 }
 
+// Time on the startup clock, or -1 when not recording.
+inline qint64 now()
+{
+    auto& state = Detail::state();
+    QMutexLocker lock(&state.mutex);
+    return state.recording.load() ? state.clock.nsecsElapsed() : -1;
+}
+
+// Record a phase whose boundaries come from events instead of a scope,
+// such as the moment Qt reports a native window inside a Qt call.
+inline void recordPhase(const char* name, qint64 startNs, qint64 endNs)
+{
+    if (startNs < 0 || endNs < startNs)
+        return;
+    auto& state = Detail::state();
+    QMutexLocker lock(&state.mutex);
+    if (!state.recording.load())
+        return;
+    auto& phase = state.phases[Detail::phaseIndex(state, name, startNs)];
+    phase.firstStartNs = qMin(phase.firstStartNs, startNs);
+    phase.totalNs += endNs - startNs;
+    phase.longestNs = qMax(phase.longestNs, endNs - startNs);
+    ++phase.calls;
+}
+
 // A shared scope spans a worker and its queued UI callback, including queue wait.
 inline std::shared_ptr<Scope> task(const char* name)
 {
@@ -576,6 +602,8 @@ public:
 };
 
 inline void appearanceAssignment(QObject*, bool, bool, bool) {}
+inline constexpr qint64 now() { return -1; }
+inline void recordPhase(const char*, qint64, qint64) {}
 inline std::shared_ptr<Scope> task(const char*) { return {}; }
 inline void firstPaintFinished() {}
 inline void finishWhenIdle() {}

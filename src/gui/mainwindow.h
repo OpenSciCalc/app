@@ -777,6 +777,8 @@ private:
     bool m_shutdownStateSaved;
     bool m_restorePreviousSessionOnStartup;
     bool m_savedWindowGeometryRestored = false;
+    // Startup clock time of the latest native window creation, or -1.
+    qint64 m_nativeWindowCreatedNs = -1;
     int m_windowGeometryRestoreGeneration = 0;
     bool m_sessionRestorePending = false;
     bool m_showAfterSessionRestore = false;

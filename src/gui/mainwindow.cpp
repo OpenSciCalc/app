@@ -7864,6 +7864,7 @@ void MainWindow::createKeypad()
     if (m_widgets.keypad)
         return;
 
+    StartupDiagnostics::Scope step("Construct keypad");
     m_widgets.keypadContainer = new QWidget(m_widgets.root);
 
     if (m_keypadMode == Settings::KeypadModeCustom) {
@@ -7899,7 +7900,9 @@ void MainWindow::createKeypad()
         connect(this, SIGNAL(radixCharacterChanged()), m_widgets.keypad, SLOT(handleRadixCharacterChange()));
     }
     m_widgets.keypad->setFocusPolicy(Qt::NoFocus);
+    step.next("Apply initial keypad appearance");
     applyKeypadAppearance();
+    step.next("Add keypad to window layout");
     m_widgets.keypad->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_widgets.keypad, SIGNAL(customContextMenuRequested(const QPoint&)),
             SLOT(showKeypadContextMenu(const QPoint&)));
@@ -7914,6 +7917,8 @@ void MainWindow::createKeypad()
 
     m_widgets.keypadContainer->show();
     m_widgets.keypad->show();
+    // The theme palette has its own appearance phase.
+    step.finish();
     applyKeypadThemeSurfacePalette();
 }
 
@@ -12784,6 +12789,8 @@ void MainWindow::setFullScreenEnabled(bool b)
 
 bool MainWindow::event(QEvent* e)
 {
+    if (e != nullptr && e->type() == QEvent::WinIdChange && StartupDiagnostics::isRecording())
+        m_nativeWindowCreatedNs = StartupDiagnostics::now();
     if (e != nullptr && m_restoredDockLayoutTimer != nullptr && m_restoredDockLayoutTimer->isActive()) {
         if (e->type() == QEvent::Show)
             m_restoredDockLayoutDeadline = QDeadlineTimer(3000);
@@ -14638,7 +14645,20 @@ void MainWindow::restoreWindowGeometry(const QByteArray& geometry)
         return;
 
     StartupDiagnostics::Scope timing("Restore saved window geometry");
-    if (!restoreGeometry(geometry))
+    // Qt creates the native window inside restoreGeometry() when the saved
+    // state is maximized or full screen. Its WinIdChange event splits that
+    // creation from the rest of the restore without creating the window early.
+    const qint64 restoreStartNs = testAttribute(Qt::WA_WState_Created)
+        ? -1 : StartupDiagnostics::now();
+    m_nativeWindowCreatedNs = -1;
+    const bool restored = restoreGeometry(geometry);
+    if (restoreStartNs >= 0 && m_nativeWindowCreatedNs >= 0) {
+        StartupDiagnostics::recordPhase("Create native window during geometry restore",
+                                        restoreStartNs, m_nativeWindowCreatedNs);
+        StartupDiagnostics::recordPhase("Apply window state after native window creation",
+                                        m_nativeWindowCreatedNs, StartupDiagnostics::now());
+    }
+    if (!restored)
         return;
     m_savedWindowGeometryRestored = true;
     // A later restore, such as a saved workspace after the settings, wins.

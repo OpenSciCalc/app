@@ -17,6 +17,7 @@ private slots:
     void startup_font_preparation_finishes_before_teardown_data();
     void startup_font_preparation_finishes_before_teardown();
     void first_result_display_records_constructor_stages();
+    void maximized_geometry_restore_records_native_window_creation();
     void repeated_highlighting_preserves_styles_without_repolishing_data();
     void repeated_highlighting_preserves_styles_without_repolishing();
     void editor_display_style_defaults_to_modern_and_persists();
@@ -103,6 +104,44 @@ void TestEditorAppearanceUi::startup_font_preparation_finishes_before_teardown()
     StartupDiagnostics::firstPaintFinished();
     StartupDiagnostics::finishWhenIdle();
     QVERIFY(StartupDiagnostics::snapshot().complete);
+}
+
+void TestEditorAppearanceUi::maximized_geometry_restore_records_native_window_creation()
+{
+    MainWindowStateGuard guard;
+    QWidget source;
+    source.setGeometry(100, 100, 700, 500);
+    source.setWindowState(Qt::WindowMaximized);
+    guard.settings->windowGeometry = source.saveGeometry();
+    StartupDiagnostics::begin();
+    const auto finishRecording = qScopeGuard([]() {
+        StartupDiagnostics::firstPaintFinished();
+        StartupDiagnostics::finishWhenIdle();
+    });
+    MainWindow window(false);
+    const auto snapshot = StartupDiagnostics::snapshot();
+    const StartupDiagnostics::Phase* restore = nullptr;
+    const StartupDiagnostics::Phase* creation = nullptr;
+    const StartupDiagnostics::Phase* state = nullptr;
+    for (const auto& phase : snapshot.phases) {
+        if (phase.name == QLatin1String("Restore saved window geometry"))
+            restore = &phase;
+        else if (phase.name == QLatin1String("Create native window during geometry restore"))
+            creation = &phase;
+        else if (phase.name == QLatin1String("Apply window state after native window creation"))
+            state = &phase;
+    }
+    QVERIFY(restore);
+    QVERIFY(creation);
+    QVERIFY(state);
+    QCOMPARE(creation->calls, 1);
+    QCOMPARE(state->calls, 1);
+    // The split phases lie inside the restore and follow each other.
+    QVERIFY(creation->firstStartNs >= restore->firstStartNs);
+    QVERIFY(state->firstStartNs >= creation->firstStartNs + creation->totalNs);
+    QVERIFY(creation->totalNs + state->totalNs <= restore->totalNs);
+    QVERIFY(window.testAttribute(Qt::WA_WState_Created));
+    QVERIFY(window.windowState() & Qt::WindowMaximized);
 }
 
 void TestEditorAppearanceUi::first_result_display_records_constructor_stages()

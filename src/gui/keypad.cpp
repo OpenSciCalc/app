@@ -5,6 +5,7 @@
 #include "gui/keypad.h"
 
 #include "core/settings.h"
+#include "core/startupdiagnostics.h"
 #include "core/unicodechars.h"
 #include "core/mathdsl.h"
 #include "gui/oklchutils.h"
@@ -634,10 +635,17 @@ Keypad::Keypad(LayoutMode layoutMode, QWidget* parent, int scalePercent)
     , m_isCustom(false)
     , m_scalePercent(scalePercent)
 {
+    // Sizing polishes the first button and measures its font, so it shows the
+    // first use of the keypad style and font apart from widget creation.
+    StartupDiagnostics::Scope timing("Create keypad buttons");
     createButtons();
+    timing.next("Size keypad buttons");
     sizeButtons();
+    timing.next("Lay out keypad buttons");
     layoutButtons();
+    timing.next("Set keypad tooltips");
     setButtonTooltips();
+    timing.finish();
     disableButtonFocus();
     setLayoutDirection(Qt::LeftToRight);
 }
@@ -649,9 +657,13 @@ Keypad::Keypad(const QList<CustomButtonDescription>& customButtons, QWidget* par
     , m_scalePercent(scalePercent)
     , m_customButtons(customButtons)
 {
+    StartupDiagnostics::Scope timing("Create keypad buttons");
     createCustomButtons();
+    timing.next("Size keypad buttons");
     sizeCustomButtons();
+    timing.next("Lay out keypad buttons");
     layoutCustomButtons();
+    timing.finish();
     disableButtonFocus();
     setLayoutDirection(Qt::LeftToRight);
 }
