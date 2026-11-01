@@ -132,14 +132,21 @@ void TestEditorAppearanceUi::maximized_geometry_restore_records_native_window_cr
             state = &phase;
     }
     QVERIFY(restore);
-    QVERIFY(creation);
-    QVERIFY(state);
-    QCOMPARE(creation->calls, 1);
-    QCOMPARE(state->calls, 1);
-    // The split phases lie inside the restore and follow each other.
-    QVERIFY(creation->firstStartNs >= restore->firstStartNs);
-    QVERIFY(state->firstStartNs >= creation->firstStartNs + creation->totalNs);
-    QVERIFY(creation->totalNs + state->totalNs <= restore->totalNs);
+    if (window.menuBar()->isNativeMenuBar()) {
+        // The native menu bar creates the window before the restore, so
+        // there is no creation inside it to split out.
+        QVERIFY(!creation);
+        QVERIFY(!state);
+    } else {
+        QVERIFY(creation);
+        QVERIFY(state);
+        QCOMPARE(creation->calls, 1);
+        QCOMPARE(state->calls, 1);
+        // The split phases lie inside the restore and follow each other.
+        QVERIFY(creation->firstStartNs >= restore->firstStartNs);
+        QVERIFY(state->firstStartNs >= creation->firstStartNs + creation->totalNs);
+        QVERIFY(creation->totalNs + state->totalNs <= restore->totalNs);
+    }
     QVERIFY(window.testAttribute(Qt::WA_WState_Created));
     QVERIFY(window.windowState() & Qt::WindowMaximized);
 }
