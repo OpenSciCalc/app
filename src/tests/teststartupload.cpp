@@ -591,6 +591,10 @@ int main(int argc, char* argv[])
             qCritical().noquote() << child.readAll();
             return 1;
         }
+        // Forward the measured process's logging, e.g. Qt categories enabled
+        // through QT_LOGGING_RULES, which is otherwise shown only on failure.
+        if (!qEnvironmentVariableIsEmpty("SPEEDCRUNCH_STARTUP_LOAD_CHILD_OUTPUT"))
+            qInfo().noquote() << QStringLiteral("Run %1 output:").arg(run) << child.readAll();
         QFile summaryFile(outputPath(QStringLiteral(".json"), runReport));
         if (!QFileInfo(runReport).isFile() || !summaryFile.open(QIODevice::ReadOnly)) {
             qCritical("Startup workload run %d exits without writing both reports", run);
