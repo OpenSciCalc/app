@@ -2220,8 +2220,9 @@ void applyWindowThemeBackground(QWidget* window, const ThemeSurfaceColors& surfa
     StartupDiagnostics::setAppearancePalette(window, paletteForThemeSurface(window->palette(), surface));
     window->setAutoFillBackground(true);
     window->setAttribute(Qt::WA_StyledBackground, true);
-    setStyleSheetIfChanged(window, QStringLiteral("QMainWindow { background-color: %1; }")
-                      .arg(surface.background.name()));
+    // The palette fills the window. A window stylesheet would route every
+    // descendant through the stylesheet style for polish, metrics and paint.
+    setStyleSheetIfChanged(window, QString());
 }
 
 void applyDockTabBarBackgroundToWidget(QWidget* widget, const ThemeSurfaceColors& surface)
@@ -9632,7 +9633,7 @@ MainWindow::MainWindow(bool restorePreviousSession)
     qApp->installEventFilter(this);
 
     timing.next("Initialize window theme background");
-    // A late parent stylesheet repolishes every menu, pane and editor below it.
+    // Children created below inherit the window palette without a later pass.
     // Final theme application still refreshes palettes after settings restore.
     applyWindowThemeBackground(this, generatedSurfaceColors(m_settings).window);
     timing.next("Create main UI (total)");

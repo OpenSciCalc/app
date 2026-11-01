@@ -112,7 +112,10 @@ void TestThemesUi::startup_styles_parent_surfaces_before_controls()
             }
         }
         // Restoration and the final theme pass must reuse the installed styles.
-        QCOMPARE(changes, 1);
+        // The window uses only its palette, so descendants keep the native style.
+        QCOMPARE(changes, parent == &window ? 0 : 1);
+        if (parent == &window)
+            QVERIFY(window.styleSheet().isEmpty());
     }
 }
 
@@ -2175,7 +2178,6 @@ void TestThemesUi::dock_surfaces_use_successive_generated_shades()
             QWidget* tabBarParent = tabBar->parentWidget();
             QVERIFY(tabBarParent != nullptr);
             QCOMPARE(tabBarParent->palette().color(QPalette::Window).name(), chromeFill.name());
-            QVERIFY(tabBarParent->styleSheet().contains(chromeFill.name()));
             const QImage tabBarImage = tabBar->grab().toImage();
             QVERIFY(!tabBarImage.isNull());
             QCOMPARE(tabBarImage.pixelColor(tabBarImage.width() - 1,
