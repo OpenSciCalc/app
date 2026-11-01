@@ -41,6 +41,7 @@ private slots:
     void formula_book_ignores_repeated_appearance_events_data();
     void formula_book_ignores_repeated_appearance_events();
     void formula_book_combines_palette_changes();
+    void formula_book_text_requests_single_font_family();
     void startup_styling_keeps_formula_book_document();
     void formula_book_retranslation_refreshes_cached_page();
     void restored_constants_dock_empty_filter_fills_header();
@@ -2047,6 +2048,28 @@ void TestDockLayoutUi::formula_book_ignores_repeated_appearance_events()
     QCOMPARE(browser->textCursor().selectedText(), selectedText);
     QCOMPARE(browser->verticalScrollBar()->value(), scroll);
     QCOMPARE(dock.currentPage(), QStringLiteral("electronics/ohmslaw"));
+}
+
+void TestDockLayoutUi::formula_book_text_requests_single_font_family()
+{
+    // A family list makes Qt populate every installed family when the text is
+    // laid out, which dominated startup on Windows systems with many fonts.
+    MainWindowStateGuard guard;
+    BookDock dock;
+    auto* browser = dock.findChild<QTextBrowser*>();
+    QVERIFY(browser);
+    for (const QString& page : {QStringLiteral("index"), QStringLiteral("electronics/ohmslaw"),
+                                QStringLiteral("geometry/sphere")}) {
+        dock.openPage(QUrl(page));
+        QCoreApplication::processEvents();
+        for (QTextBlock block = browser->document()->begin(); block.isValid(); block = block.next()) {
+            for (auto it = block.begin(); !it.atEnd(); ++it) {
+                const QStringList families = it.fragment().charFormat().fontFamilies().toStringList();
+                QVERIFY2(families.size() <= 1,
+                         qPrintable(page + QStringLiteral(": ") + families.join(QStringLiteral(", "))));
+            }
+        }
+    }
 }
 
 void TestDockLayoutUi::formula_book_combines_palette_changes()

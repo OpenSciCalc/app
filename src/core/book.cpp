@@ -6,15 +6,14 @@
 
 #include "core/book.h"
 
+// No font-family: Qt turns a family list into fallback families, and loading
+// those makes Qt read every installed font family, which takes most of a second
+// on systems with many fonts. The dock's default font covers all page text.
 #define STYLE \
     "<style>" \
         "body {" \
             "background-color: #ffffff;" \
             "color: #000000;" \
-        "}" \
-        \
-        "h2 {" \
-            "font-family: \"Times New Roman\", Verdana, Arial, Helvetica, sans-serif;" \
         "}" \
         \
         ".variable {" \
@@ -39,13 +38,11 @@
         \
         ".page-link a:link {" \
             "color: #555;" \
-            "font-family: Verdana, Arial, Helvetica, sans-serif;" \
         "}" \
         \
         ".formula a:link {" \
             "color: SteelBlue;" \
             "font-size: large;" \
-            "font-family: \"Times New Roman\", Verdana, Arial, Helvetica, sans-serif;" \
         "}" \
     "</style>"
 
