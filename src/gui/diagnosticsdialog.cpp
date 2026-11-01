@@ -3,6 +3,7 @@
 
 #include "gui/diagnosticsdialog.h"
 #include "buildversion.h"
+#include "core/processlaunch.h"
 #include "core/settings.h"
 #include "core/startupdiagnostics.h"
 
@@ -97,6 +98,10 @@ QString processStatistics()
 #endif
     if (result.isEmpty())
         out << "Process memory and CPU time: unavailable on this platform\n";
+    const qint64 launchNs = ProcessLaunch::mainEntryNs();
+    out << "Process launch to main(): "
+        << (launchNs >= 0 ? milliseconds(launchNs) + QStringLiteral(" ms")
+                          : QStringLiteral("unavailable")) << '\n';
     return result;
 }
 }
@@ -145,7 +150,8 @@ QString appDiagnosticsReport(const QString& workload)
         << "Widget style: " << (platformStyle->objectName().isEmpty()
                                    ? QString::fromLatin1(platformStyle->metaObject()->className())
                                    : platformStyle->objectName()) << '\n'
-        << "CPU threads available: " << QThread::idealThreadCount() << '\n';
+        << "CPU threads available: " << QThread::idealThreadCount() << '\n'
+        << "Font families: " << QFontDatabase::families().size() << '\n';
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     const Qt::ColorScheme scheme = QGuiApplication::styleHints()->colorScheme();
     out << "Effective Qt color scheme: " << (scheme == Qt::ColorScheme::Light ? "Light"
@@ -211,9 +217,14 @@ QString appDiagnosticsReport(const QString& workload)
     }
     out << "Status: " << (startup.complete ? "complete" : "in progress") << '\n'
         << "Elapsed from main(): " << milliseconds(startup.elapsedNs) << " ms\n";
-    if (startup.firstPaintNs >= 0)
+    if (startup.firstPaintNs >= 0) {
         out << "First window paint and event processing: "
-            << milliseconds(startup.firstPaintNs) << " ms from main()\n";
+            << milliseconds(startup.firstPaintNs) << " ms from main()";
+        const qint64 launchNs = ProcessLaunch::mainEntryNs();
+        if (launchNs >= 0)
+            out << ", " << milliseconds(launchNs + startup.firstPaintNs) << " ms from process launch";
+        out << '\n';
+    }
     out << "Durations are wall-clock times. Nested phases and worker tasks overlap.\n"
         << "Totals include repeated calls. Do not add them to estimate startup time.\n"
         << "Async totals include time waiting for the UI thread.\n"
@@ -273,7 +284,9 @@ QString appDiagnosticsReport(const QString& workload)
         out << "Appearance recording limits: 512 calls, 2048 identities, 2048 assignment rows.\n"
             << "Omitted appearance records: " << startup.omittedAppearanceRecords << '\n';
     }
-    out << "\nTimings start at main() and exclude process loading before main().\n"
+    out << "\nPhase timings start at main(). Process launch to main() covers process creation,\n"
+        << "library loading, security scans and static initialization. It uses the OS process\n"
+        << "start time, which can be coarse (up to about 16 ms on Windows, 10 ms on Linux).\n"
         << "Measurements stay in memory and are discarded when the app exits.\n";
     return report;
 }

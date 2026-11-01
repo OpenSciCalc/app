@@ -17,6 +17,7 @@ core/numberformatter.h
 core/pageserver.h
 core/settings.h
 core/singleinstance.h
+core/processlaunch.h
 core/opcode.h
 core/sessionhistory.h
 core/sessionjsonkeys.h
@@ -102,6 +103,7 @@ core/numberformatter.cpp
 core/pageserver.cpp
 core/settings.cpp
 core/singleinstance.cpp
+core/processlaunch.cpp
 core/session.cpp
 core/sessionhistory.cpp
 core/userdefinitions.cpp
@@ -445,6 +447,7 @@ tests/testdocksui.cpp
 
 set(mainwindowuitest_SOURCES
 core/singleinstance.cpp
+core/processlaunch.cpp
 gui/launchcontroller.cpp
 gui/platformactivation.cpp
 gui/menustyleutils.cpp

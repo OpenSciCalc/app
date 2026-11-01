@@ -4,9 +4,11 @@
 #include "mainwindowtesthelpers.h"
 #include "core/numberformatter.h"
 #include "core/mathdsl.h"
+#include "core/processlaunch.h"
 #include "gui/diagnosticsdialog.h"
 #include "buildversion.h"
 
+#include <QFontDatabase>
 #include <QOperatingSystemVersion>
 #include <QStyleHints>
 
@@ -36,6 +38,7 @@ private slots:
     void about_box_shows_version_commit_qt_and_os_in_order();
     void about_box_identifies_source_commit();
     void diagnostics_identifies_source_commit();
+    void diagnostics_reports_process_launch_and_fonts();
     void update_checks_follow_build_option();
     void ui_test_fixture_resets_persisted_layout_and_first_run_preference();
     void editing_input_digit_grouping_updates_all_open_editors();
@@ -809,6 +812,41 @@ void TestSettingsUi::diagnostics_identifies_source_commit()
     } else {
         QCOMPARE(QStringLiteral(SPEEDCRUNCH_SOURCE_REVISION_SHORT), QStringLiteral("unknown"));
     }
+}
+
+void TestSettingsUi::diagnostics_reports_process_launch_and_fonts()
+{
+    const qint64 before = ProcessLaunch::elapsedNs();
+    ProcessLaunch::recordMainEntry();
+    const qint64 recorded = ProcessLaunch::mainEntryNs();
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS) || defined(Q_OS_LINUX)
+    QVERIFY(before >= 0);
+    QVERIFY(recorded >= 0);
+    // Linux counts the start time in clock ticks, so allow one tick of jitter.
+    QVERIFY(recorded + 20000000 >= before);
+#endif
+
+    const QStringList lines = appDiagnosticsReport(QString()).split(QLatin1Char('\n'));
+    const auto lineStartingWith = [&lines](const QString& prefix) {
+        for (const QString& line : lines) {
+            if (line.startsWith(prefix))
+                return line.mid(prefix.size());
+        }
+        return QString();
+    };
+    const QString launch = lineStartingWith(QStringLiteral("Process launch to main(): "));
+    if (recorded >= 0) {
+        QVERIFY2(launch.endsWith(QStringLiteral(" ms")), qPrintable(launch));
+        bool ok = false;
+        launch.chopped(3).toDouble(&ok);
+        QVERIFY(ok);
+    } else {
+        QCOMPARE(launch, QStringLiteral("unavailable"));
+    }
+    bool ok = false;
+    const int families = lineStartingWith(QStringLiteral("Font families: ")).toInt(&ok);
+    QVERIFY(ok);
+    QCOMPARE(families, QFontDatabase::families().size());
 }
 
 void TestSettingsUi::update_checks_follow_build_option()

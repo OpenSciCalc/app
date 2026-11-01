@@ -5,6 +5,7 @@
 #include "gui/mainwindow.h"
 #include "gui/diagnosticapplication.h"
 #include "gui/startupfontpreparation.h"
+#include "core/processlaunch.h"
 #include "core/settings.h"
 #include "core/startupdiagnostics.h"
 #include "core/singleinstance.h"
@@ -184,6 +185,7 @@ int startupLoadApplicationMain(int argc, char* argv[])
 int main(int argc, char* argv[])
 #endif
 {
+    ProcessLaunch::recordMainEntry();
     // Capture launcher metadata before Qt initializes the platform plugin.
     const LaunchRequest launchRequest = LaunchRequest::fromEnvironment();
     StartupDiagnostics::begin();

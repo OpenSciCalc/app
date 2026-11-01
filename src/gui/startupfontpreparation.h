@@ -15,8 +15,16 @@ class StartupFontPreparation {
 public:
     StartupFontPreparation()
     {
-        if (QGuiApplication::platformName() != QLatin1String("cocoa"))
+        if (QGuiApplication::platformName() != QLatin1String("cocoa")) {
+            // Elsewhere the first text widget loads the font database on the
+            // UI thread. Load it here while recording so the report shows that
+            // cost, which grows with the number of installed fonts.
+            if (StartupDiagnostics::isRecording()) {
+                StartupDiagnostics::Scope timing("Load font database");
+                QFontDatabase::families();
+            }
             return;
+        }
 
         // The first text widget otherwise loads the font database on the UI
         // thread. QFontDatabase is thread-safe, so overlap that work with native
