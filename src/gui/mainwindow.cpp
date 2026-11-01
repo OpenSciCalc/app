@@ -48,6 +48,7 @@
 #include "core/manualserver.h"
 #include "gui/resultdisplay.h"
 #include "gui/resultlineformatutils.h"
+#include "gui/symbolfont.h"
 #include "gui/syntaxhighlighter.h"
 #include "gui/themedlineedit.h"
 #include "gui/lineeditstyleutils.h"
@@ -4677,6 +4678,10 @@ void MainWindow::setActionsText()
         MainWindow::tr("Trigonometric (r(cos θ + i·sin θ))"));
     m_actions.settingsResultFormatCis->setText(QStringLiteral("Cis (r·cis(θ))"));
     m_actions.settingsResultFormatPolarAngle->setText(MainWindow::tr("Phasor (r∠θ)"));
+    // Some UI fonts lack ∠, so a translation without it keeps the menu font.
+    m_actions.settingsResultFormatPolarAngle->setFont(
+        SymbolFont::isNeededFor(m_actions.settingsResultFormatPolarAngle->text())
+            ? SymbolFont::withSymbolFamily() : QFont());
     m_actions.settingsImaginaryUnitI->setText(QStringLiteral("&i"));
     m_actions.settingsImaginaryUnitJ->setText(QStringLiteral("&j"));
     m_actions.settingsDisplayFont->setText(MainWindow::tr("&Font..."));

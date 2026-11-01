@@ -8,6 +8,7 @@
 #include "core/settings.h"
 #include "core/startupdiagnostics.h"
 #include "gui/dockliststyle.h"
+#include "gui/symbolfont.h"
 #include "gui/themedlineedit.h"
 #include "gui/uiconfig.h"
 
@@ -157,6 +158,9 @@ void FunctionsWidget::updateList()
         {
             if (domainMatches) {
                 QTreeWidgetItem* item = new QTreeWidgetItem(m_functions, str);
+                // Symbol aliases such as ∛ are missing from some UI fonts.
+                if (SymbolFont::isNeededFor(identifier))
+                    item->setFont(0, SymbolFont::withSymbolFamily());
                 if (layoutDirection() == Qt::LeftToRight) {
                     item->setTextAlignment(0, Qt::AlignLeft);
                     item->setTextAlignment(1, Qt::AlignLeft);
