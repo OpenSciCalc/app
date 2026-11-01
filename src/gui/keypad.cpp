@@ -259,6 +259,23 @@ QFont scaledFont(const QFont& base, int scalePercent)
     return font;
 }
 
+QFont labelFont(const QFont& base, const QString& label)
+{
+#ifdef Q_OS_WIN
+    // Segoe UI has no ⌧ or ⌫. When a glyph is missing, Qt builds its font
+    // fallback list by loading every installed family, which takes most of a
+    // second with many fonts installed. Segoe UI Symbol has both glyphs.
+    if (label.contains(QChar(0x2327)) || label.contains(QChar(0x232B))) {
+        QFont font(base);
+        font.setFamily(QStringLiteral("Segoe UI Symbol"));
+        return font;
+    }
+#else
+    Q_UNUSED(label);
+#endif
+    return base;
+}
+
 enum class KeypadButtonVisualRole {
     Normal,
     Numeric,
@@ -769,7 +786,8 @@ void Keypad::createButtons()
         key->setMouseTracking(true);
         key->setAttribute(Qt::WA_Hover, true);
         key->setStyleSheet(keypadButtonStyleSheet(palette()));
-        key->setFont(description->boldFont ? emphasizedBoldFont : boldFont);
+        key->setFont(labelFont(description->boldFont ? emphasizedBoldFont : boldFont,
+                               description->label));
         key->installEventFilter(this);
         const QPair<QPushButton*, const KeyDescription*> hashValue(key, description);
         keys.insert(description->button, hashValue);
@@ -843,7 +861,7 @@ void Keypad::createCustomButtons()
     for (const auto& description : m_customButtons) {
         QPushButton* key = new QPushButton(description.label, this);
         key->setCursor(Qt::PointingHandCursor);
-        key->setFont(boldFont);
+        key->setFont(labelFont(boldFont, description.label));
         key->setStyleSheet(keypadButtonStyleSheet(palette()));
         QObject::connect(key, &QPushButton::clicked, this, [this, description]() {
             emit customButtonPressed(description.action, description.text);
@@ -1173,6 +1191,8 @@ void Keypad::sizeCustomButtons()
 
     // Match preset keypad sizing baseline exactly (bold, larger numeric key font).
     QFont boldFont = m_customWidgets.first()->font();
+    // The first label may use a symbol font; size from the keypad's own family.
+    boldFont.setFamilies(font().families());
     boldFont.setBold(true);
     boldFont.setPointSize(boldFont.pointSize() + 3);
     boldFont = scaledFont(boldFont, m_scalePercent);

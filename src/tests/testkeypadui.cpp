@@ -17,6 +17,7 @@ private slots:
     void keypad_buttons_use_custom_themed_tooltips();
     void custom_keypad_action_stays_checked_after_dialog_accepts();
     void keypad_power_button_uses_exponent_label_but_inserts_caret();
+    void keypad_symbol_labels_use_font_with_their_glyphs();
     void keypad_nth_root_button_inserts_root_data();
     void keypad_nth_root_button_inserts_root();
     void keypad_zoom_round_trip_restores_button_sizes_data();
@@ -351,6 +352,35 @@ void TestKeypadUi::keypad_power_button_uses_exponent_label_but_inserts_caret()
 
     QTest::mouseClick(powerButton, Qt::LeftButton);
     QTRY_COMPARE(editor->text(), QStringLiteral("2^"));
+}
+
+void TestKeypadUi::keypad_symbol_labels_use_font_with_their_glyphs()
+{
+    // A missing glyph makes Qt load every installed font family on Windows,
+    // which dominated startup on systems with many fonts.
+    const auto check = [](Keypad& keypad) {
+        QPushButton* reference = keypadButtonWithText(&keypad, QString::fromUtf8("π"));
+        QVERIFY(reference != nullptr);
+        for (const QString& label : {QString::fromUtf8("⌧"), QString::fromUtf8("⌫")}) {
+            QPushButton* button = keypadButtonWithText(&keypad, label);
+            QVERIFY2(button != nullptr, qPrintable(label));
+            QCOMPARE(button->font().bold(), reference->font().bold());
+            QCOMPARE(button->font().pointSizeF(), reference->font().pointSizeF());
+#ifdef Q_OS_WIN
+            QCOMPARE(button->font().family(), QStringLiteral("Segoe UI Symbol"));
+#else
+            QCOMPARE(button->font().family(), reference->font().family());
+#endif
+        }
+    };
+
+    Keypad preset(Keypad::LayoutModeScientificWide);
+    check(preset);
+    if (QTest::currentTestFailed())
+        return;
+
+    Keypad custom(Keypad::presetCustomButtons(Keypad::LayoutModeScientificWide, QLatin1Char('.')));
+    check(custom);
 }
 
 void TestKeypadUi::keypad_nth_root_button_inserts_root_data()
