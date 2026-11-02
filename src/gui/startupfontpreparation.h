@@ -7,7 +7,6 @@
 #include "core/startupdiagnostics.h"
 
 #include <QFontDatabase>
-#include <QGuiApplication>
 #include <QThread>
 #include <memory>
 
@@ -15,20 +14,15 @@ class StartupFontPreparation {
 public:
     StartupFontPreparation()
     {
-        if (QGuiApplication::platformName() != QLatin1String("cocoa")) {
-            // Elsewhere the first text widget loads the font database on the
-            // UI thread. Load it here while recording so the report shows that
-            // cost, which grows with the number of installed fonts.
-            if (StartupDiagnostics::isRecording()) {
-                StartupDiagnostics::Scope timing("Load font database");
-                QFontDatabase::families();
-            }
-            return;
-        }
+        // Some platforms create their font backend on first use without a lock.
+        // Create it here, so the worker below cannot race the UI thread for it.
+        // This call does not load the font list.
+        QFontDatabase::standardSizes();
 
         // The first text widget otherwise loads the font database on the UI
-        // thread. QFontDatabase is thread-safe, so overlap that work with native
-        // menu and window construction after QApplication has initialized.
+        // thread. QFontDatabase is thread-safe, so overlap that work with window
+        // construction after QApplication has initialized. The UI thread waits
+        // inside Qt when it needs a font before the worker has finished.
         const auto task = StartupDiagnostics::task("Prepare font database (async total)");
         m_thread.reset(QThread::create([task]() {
             {

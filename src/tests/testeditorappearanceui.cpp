@@ -80,12 +80,8 @@ void TestEditorAppearanceUi::startup_font_preparation_finishes_before_teardown()
     int workerCalls = 0;
     int waitCalls = 0;
     int asyncCalls = 0;
-    int loadCalls = 0;
     for (const auto& phase : snapshot.phases) {
-        if (phase.name == QStringLiteral("Load font database")) {
-            loadCalls += phase.calls;
-            QVERIFY(!phase.worker);
-        } else if (phase.name == QStringLiteral("Prepare font database")) {
+        if (phase.name == QStringLiteral("Prepare font database")) {
             workerCalls += phase.calls;
             QVERIFY(phase.worker);
         } else if (phase.name == QStringLiteral("Wait for font preparation")) {
@@ -96,11 +92,9 @@ void TestEditorAppearanceUi::startup_font_preparation_finishes_before_teardown()
         }
         QCOMPARE(phase.running, 0);
     }
-    const int expected = QApplication::platformName() == QLatin1String("cocoa") ? 1 : 0;
-    QCOMPARE(workerCalls, expected);
-    QCOMPARE(waitCalls, expected);
-    QCOMPARE(asyncCalls, expected);
-    QCOMPARE(loadCalls, 1 - expected);
+    QCOMPARE(workerCalls, 1);
+    QCOMPARE(waitCalls, 1);
+    QCOMPARE(asyncCalls, 1);
     StartupDiagnostics::firstPaintFinished();
     StartupDiagnostics::finishWhenIdle();
     QVERIFY(StartupDiagnostics::snapshot().complete);
