@@ -57,7 +57,6 @@ QString singletonServerName()
     return QStringLiteral("speedcrunch-single-instance-%1").arg(QString::fromLatin1(hash.left(24)));
 }
 
-MainWindow* g_mainWindow = 0;
 std::atomic_bool g_eventLoopRunning(false);
 std::atomic_bool g_shutdownInProgress(false);
 
@@ -98,8 +97,8 @@ void persistAndQuit()
     g_shutdownInProgress.store(true);
     if (QCoreApplication::instance())
         QCoreApplication::instance()->setProperty(kShutdownInProgressProperty, true);
-    if (g_mainWindow)
-        g_mainWindow->persistSessionAndSettingsForShutdown();
+    if (MainWindow* window = MainWindow::primaryWindow())
+        window->persistSessionAndSettingsForShutdown();
     if (QCoreApplication::instance())
         QCoreApplication::quit();
 }
@@ -235,8 +234,8 @@ int main(int argc, char* argv[])
         g_shutdownInProgress.store(true);
         application.setProperty(kShutdownInProgressProperty, true);
         singletonServer.close();
-        if (g_mainWindow)
-            g_mainWindow->persistSessionAndSettingsForShutdown();
+        if (MainWindow* window = MainWindow::primaryWindow())
+            window->persistSessionAndSettingsForShutdown();
 #ifdef Q_OS_UNIX
         if (g_unixSignalFds[0] != -1) {
             ::close(g_unixSignalFds[0]);
@@ -288,13 +287,15 @@ int main(int argc, char* argv[])
     MainWindow::initializeApplicationStyle();
     StartupFontPreparation fontPreparation;
     timing.next("Initialize main window (total)");
-    MainWindow window;
+    // The first window is like every other window: it is deleted when it
+    // closes. The app quits when the last window closes.
+    MainWindow* window = new MainWindow;
+    window->setAttribute(Qt::WA_DeleteOnClose, true);
     fontPreparation.wait();
-    g_mainWindow = &window;
     timing.next("Schedule main window display");
-    window.showWhenReady();
+    window->showWhenReady();
 
-    launchController.setInitialWindow(&window);
+    launchController.setInitialWindow(window);
 
     QObject::connect(&application, &QGuiApplication::lastWindowClosed, &application, [&]() {
         if (!shutdownInProgress())
@@ -303,11 +304,13 @@ int main(int argc, char* argv[])
 
     timing.finish();
 #ifdef SPEEDCRUNCH_STARTUP_LOAD_TEST
-    StartupLoadTest::watch(window);
+    StartupLoadTest::watch(*window);
 #endif
     g_eventLoopRunning.store(true);
     const int result = application.exec();
     g_eventLoopRunning.store(false);
-    g_mainWindow = 0;
+    // Quitting closes all windows. Delete them now, before QApplication is
+    // deleted.
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     return result;
 }

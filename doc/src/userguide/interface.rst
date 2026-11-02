@@ -164,9 +164,14 @@ as :menuselection:`Clone...` in the tab context menu and
 :menuselection:`Session --> Clone...` in the result display context menu.
 Use :menuselection:`Session --> New Window` to open a blank
 session in a new window that copies the current window and dock layout.
+Closing a window closes only that window. SpeedCrunch exits when you close the
+last window or choose :menuselection:`Session --> Quit`, and its next start
+restores the windows that were open at that moment.
 Choose :menuselection:`Session --> Close Tab` to close the active tab, or
 :menuselection:`Session --> Reopen Closed Tab` to restore the last ordinary tab
 you closed. Private tabs cannot be reopened.
+Closing a window's last tab also closes the window. In the only open window,
+SpeedCrunch opens a blank tab instead.
 Both commands are also available from the tab context menu.
 When a floating dock has focus, session commands apply to its window.
 Use :menuselection:`View --> Split` to add a pane in any direction, and
@@ -652,12 +657,14 @@ to ``0`` to disable the limit for the active session.
 Window
 ++++++
 
-This section contains settings that control the main window behavior.
+This section contains settings that control window behavior.
 
 * :menuselection:`On Subsequent Launch`
     Choose what happens when you launch SpeedCrunch while it is already running.
     :menuselection:`Activate Existing Window` is the default.
     :menuselection:`Open New Window` opens a blank session in another window.
+    Each window closes on its own, and SpeedCrunch keeps running until you
+    close the last one.
     :menuselection:`Open New Tab` opens a blank session in the most recently
     active calculator window, using its active pane if the window is split.
     The choice applies to all windows and is saved between launches.

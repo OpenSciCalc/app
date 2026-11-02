@@ -67,6 +67,11 @@ private slots:
     void activate_choice_handles_modal_dialog_immediately();
     void shutdown_discards_queued_launches();
     void normal_activation_does_not_create_sessions();
+    void closing_first_of_several_windows_keeps_the_others_data();
+    void closing_first_of_several_windows_keeps_the_others();
+    void quit_saves_all_windows_after_primary_window_closes();
+    void closing_last_window_quits_and_saves();
+    void closing_last_window_process_helper();
     void request_encoding_data();
     void request_encoding();
     void invalid_requests_data();
@@ -377,6 +382,169 @@ void TestLaunchUi::normal_activation_does_not_create_sessions()
     window.activateWindow();
     QTest::qWait(30);
     QCOMPARE(mainWindowCount(), 1);
+}
+
+void TestLaunchUi::closing_first_of_several_windows_keeps_the_others_data()
+{
+    QTest::addColumn<bool>("closeLastTab");
+    QTest::newRow("window") << false;
+    QTest::newRow("last-tab") << true;
+}
+
+void TestLaunchUi::closing_first_of_several_windows_keeps_the_others()
+{
+    QFETCH(bool, closeLastTab);
+    MainWindowStateGuard guard;
+    PrivateSessionStorage storage;
+    guard.settings->subsequentLaunchAction = Settings::OpenNewWindow;
+    LaunchController controller;
+    QPointer<MainWindow> first = new MainWindow(false);
+    first->setAttribute(Qt::WA_DeleteOnClose, true);
+    first->show();
+    QVERIFY(QTest::qWaitForWindowExposed(first));
+    controller.setInitialWindow(first);
+    QCOMPARE(MainWindow::primaryWindow(), first.data());
+    QSignalSpy handled(&controller, &LaunchController::requestHandled);
+    controller.request();
+    QTRY_COMPARE(handled.size(), 1);
+    QPointer<MainWindow> second = handled.first().first().value<MainWindow*>();
+    QVERIFY(second && second != first);
+    first->findChild<Editor*>()->setText(QStringLiteral("1+1"));
+    QVERIFY(QMetaObject::invokeMethod(first, "evaluateEditorExpression", Qt::DirectConnection));
+    const QString sessionFile = QDir(QDir(Settings::getDataPath()).filePath(QStringLiteral("sessions")))
+        .filePath(first->findChild<ResultDisplay*>()->session()->name() + QStringLiteral(".json"));
+
+    // Closing the first window must not close the second window. The new
+    // result in the first window must still be saved.
+    if (closeLastTab)
+        QVERIFY(QMetaObject::invokeMethod(first, "closeCurrentSession", Qt::DirectConnection));
+    else
+        QVERIFY(first->close());
+    QTRY_VERIFY(first.isNull());
+    QTRY_VERIFY(QFileInfo::exists(sessionFile));
+    QVERIFY(second->isVisible());
+    QCOMPARE(mainWindowCount(), 1);
+    QVERIFY(!qApp->property("speedcrunchShutdownInProgress").toBool());
+    QCOMPARE(MainWindow::primaryWindow(), second.data());
+    const QJsonObject layout = QJsonDocument::fromJson(guard.settings->sessionLayoutJson.toUtf8()).object();
+    QCOMPARE(layout.value(QStringLiteral("windows")).toArray().size(), 1);
+
+    // The next launch uses the window that is still open.
+    guard.settings->subsequentLaunchAction = Settings::OpenNewTab;
+    controller.request();
+    QTRY_COMPARE(handled.size(), 2);
+    QCOMPARE(handled.last().first().value<MainWindow*>(), second.data());
+    QTabBar* tabs = tabBarForDisplay(second->findChild<ResultDisplay*>());
+    QCOMPARE(tabs->count(), 2);
+
+    // The only open window stays open when all its tabs close.
+    QVERIFY(QMetaObject::invokeMethod(second, "closeCurrentSession", Qt::DirectConnection));
+    QVERIFY(QMetaObject::invokeMethod(second, "closeCurrentSession", Qt::DirectConnection));
+    QVERIFY(second->isVisible());
+    QCOMPARE(tabs->count(), 1);
+    QVERIFY(!qApp->property("speedcrunchShutdownInProgress").toBool());
+}
+
+void TestLaunchUi::quit_saves_all_windows_after_primary_window_closes()
+{
+    MainWindowStateGuard guard;
+    PrivateSessionStorage storage;
+    QPointer<MainWindow> first = new MainWindow(false);
+    first->setAttribute(Qt::WA_DeleteOnClose, true);
+    first->show();
+    QVERIFY(QTest::qWaitForWindowExposed(first));
+    QPointer<MainWindow> second = first->createNewSessionWindow(false);
+    QPointer<MainWindow> third = first->createNewSessionWindow(false);
+    QVERIFY(second && third);
+    QCOMPARE(MainWindow::primaryWindow(), first.data());
+
+    // Each time the primary window closes, the next open window becomes
+    // the primary window.
+    QVERIFY(first->close());
+    QTRY_VERIFY(first.isNull());
+    QCOMPARE(MainWindow::primaryWindow(), second.data());
+    QVERIFY(second->close());
+    QTRY_VERIFY(second.isNull());
+    QCOMPARE(MainWindow::primaryWindow(), third.data());
+
+    QPointer<MainWindow> fourth = third->createNewSessionWindow(false);
+    QVERIFY(fourth);
+    QStringList sessionFiles;
+    for (MainWindow* window : {third.data(), fourth.data()}) {
+        window->findChild<Editor*>()->setText(QStringLiteral("6*7"));
+        QVERIFY(QMetaObject::invokeMethod(window, "evaluateEditorExpression", Qt::DirectConnection));
+        const QString name = window->findChild<ResultDisplay*>()->session()->name();
+        sessionFiles.append(storage.path(name));
+        QVERIFY(!QFileInfo::exists(sessionFiles.last()));
+    }
+
+    // The new primary window must save all windows when the app quits.
+    // Do not process events first, so the normal delayed save cannot run.
+    QEvent quit(QEvent::Quit);
+    QCoreApplication::sendEvent(qApp, &quit);
+    for (const QString& file : std::as_const(sessionFiles))
+        QVERIFY2(QFileInfo::exists(file), qPrintable(file));
+    const QJsonObject layout = QJsonDocument::fromJson(guard.settings->sessionLayoutJson.toUtf8()).object();
+    QCOMPARE(layout.value(QStringLiteral("windows")).toArray().size(), 2);
+}
+
+void TestLaunchUi::closing_last_window_quits_and_saves()
+{
+    // Quitting cannot be undone inside this process, so a child process
+    // runs closing_last_window_process_helper().
+    QProcess child;
+    child.setProcessChannelMode(QProcess::MergedChannels);
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QStringLiteral("SPEEDCRUNCH_TEST_LAST_WINDOW_CLOSE"), QStringLiteral("1"));
+    child.setProcessEnvironment(environment);
+    child.start(QCoreApplication::applicationFilePath(), {QStringLiteral("closing_last_window_process_helper")});
+    QVERIFY(child.waitForStarted(3000));
+    if (!child.waitForFinished(30000))
+        child.kill();
+    const QByteArray output = child.readAll();
+    QVERIFY2(child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0, output.constData());
+    QVERIFY2(output.contains("PASS   : TestLaunchUi::closing_last_window_process_helper()"), output.constData());
+}
+
+void TestLaunchUi::closing_last_window_process_helper()
+{
+    if (qEnvironmentVariableIsEmpty("SPEEDCRUNCH_TEST_LAST_WINDOW_CLOSE")) {
+        QTest::qSkip("Only run by closing_last_window_quits_and_saves", __FILE__, __LINE__);
+        return;
+    }
+    QPointer<MainWindow> first = new MainWindow(false);
+    first->setAttribute(Qt::WA_DeleteOnClose, true);
+    first->show();
+    QVERIFY(QTest::qWaitForWindowExposed(first));
+    QPointer<MainWindow> second = first->createNewSessionWindow(false);
+    QVERIFY(second);
+    QVERIFY(first->close());
+    QTRY_VERIFY(first.isNull());
+    QCOMPARE(MainWindow::primaryWindow(), second.data());
+    second->findChild<Editor*>()->setText(QStringLiteral("6*7"));
+    QVERIFY(QMetaObject::invokeMethod(second, "evaluateEditorExpression", Qt::DirectConnection));
+    const QString name = second->findChild<ResultDisplay*>()->session()->name();
+
+    // Closing the last window must quit the app. If it does not, stop
+    // after a few seconds with exit code 2.
+    QTimer::singleShot(0, second, [second]() { second->close(); });
+    QTimer::singleShot(5000, qApp, []() { QCoreApplication::exit(2); });
+    QCOMPARE(QCoreApplication::exec(), 0);
+    QVERIFY(qApp->property("speedcrunchShutdownInProgress").toBool());
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QVERIFY(second.isNull());
+
+    // The settings file and the session file must be on disk for the
+    // next start.
+    const QString sessionFile = QDir(QDir(Settings::getDataPath()).filePath(QStringLiteral("sessions")))
+        .filePath(name + QStringLiteral(".json"));
+    QVERIFY2(QFileInfo::exists(sessionFile), qPrintable(sessionFile));
+    QSettings saved(Settings::getConfigPath() + QStringLiteral("/SpeedCrunch.ini"), QSettings::IniFormat);
+    const QString layoutJson = saved.value(QStringLiteral("SpeedCrunch/Layout/SessionLayoutJson")).toString();
+    const QJsonArray windows = QJsonDocument::fromJson(layoutJson.toUtf8()).object()
+        .value(QStringLiteral("windows")).toArray();
+    QCOMPARE(windows.size(), 1);
+    QVERIFY(layoutJson.contains(name));
 }
 
 void TestLaunchUi::request_encoding_data()

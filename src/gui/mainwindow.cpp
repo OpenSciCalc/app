@@ -2398,6 +2398,17 @@ QList<QPointer<MainWindow>>& allMainWindows()
     return windows;
 }
 
+// closeEvent() removes a window from allMainWindows(). So every other window
+// in the list is still open.
+bool otherMainWindowIsOpen(const MainWindow* window)
+{
+    for (const QPointer<MainWindow>& other : allMainWindows()) {
+        if (other != nullptr && other != window)
+            return true;
+    }
+    return false;
+}
+
 QHash<QString, QPointer<MainWindow>>& windowIds()
 {
     static QHash<QString, QPointer<MainWindow>> ids;
@@ -10114,6 +10125,11 @@ void MainWindow::createNewSessionTab()
         showNewSessionDialog();
 }
 
+MainWindow* MainWindow::primaryWindow()
+{
+    return primaryMainWindow().data();
+}
+
 MainWindow* MainWindow::subsequentLaunchWindow()
 {
     MainWindow* target = activeMainWindowForMenuAction(primaryMainWindow());
@@ -10379,11 +10395,10 @@ void MainWindow::closeCurrentSession()
             else if (sessionHasPersistableContent(m_session))
                 saveSessionToDefaultPath();
 
-            // A child window exists only to host its current session set. When
-            // the last tab closes there, close the child window instead of
-            // creating a replacement untitled session as the primary window
-            // does.
-            if (this != primaryMainWindow()) {
+            // If other windows are open, close this window with its last tab.
+            // If this is the only window, open a new untitled tab instead, so
+            // the app keeps running.
+            if (otherMainWindowIsOpen(this)) {
                 close();
                 return;
             }
@@ -15515,24 +15530,37 @@ void MainWindow::setRadixCharacterBoth()
 
 void MainWindow::closeEvent(QCloseEvent* e)
 {
-    if (primaryMainWindow() == this) {
-        const bool shutdownAlreadyInProgress = applicationShutdownInProgress();
-        if (!shutdownAlreadyInProgress) {
-            // Mark shutdown before saving/restoring layouts so child close events
-            // caused by QApplication::quit() do not rewrite the multi-window layout
-            // as if each child had been closed manually.
-            qApp->setProperty("speedcrunchShutdownInProgress", true);
-            appShutdownInProgress() = true;
+    if (applicationShutdownInProgress()) {
+        // The app is quitting and Qt closes all windows. One window, the
+        // primary window, saves all windows. The other windows do nothing.
+        if (primaryMainWindow() == this)
+            persistSessionAndSettingsForShutdown();
+    } else if (otherMainWindowIsOpen(this)) {
+        // Other windows are open, so close only this window. Save the session
+        // now, because the save timer is deleted with this window. If this was
+        // the primary window, the next open window becomes the primary window.
+        if (m_sessionSavePending)
+            flushPendingSessionSave();
+        allMainWindows().removeAll(QPointer<MainWindow>(this));
+        if (primaryMainWindow() == this) {
+            for (const QPointer<MainWindow>& window : allMainWindows()) {
+                if (window != nullptr) {
+                    primaryMainWindow() = window;
+                    break;
+                }
+            }
         }
-        persistSessionAndSettingsForShutdown();
-        if (!shutdownAlreadyInProgress)
-            qApp->quit();
+        updatePaneEditorCursorVisibility();
+        saveSessionLayout(false);
     } else {
-        if (!applicationShutdownInProgress()) {
-            allMainWindows().removeAll(QPointer<MainWindow>(this));
-            updatePaneEditorCursorVisibility();
-            saveSessionLayout(false);
-        }
+        // This is the last open window, so quit. Mark the shutdown first.
+        // Then the close events that quit() sends do not save the layout
+        // again as if the user closed each window.
+        primaryMainWindow() = this;
+        qApp->setProperty("speedcrunchShutdownInProgress", true);
+        appShutdownInProgress() = true;
+        persistSessionAndSettingsForShutdown();
+        qApp->quit();
     }
     e->accept();
 }

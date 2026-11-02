@@ -66,6 +66,7 @@ public:
     ~MainWindow();
     void showWhenReady();
     void persistSessionAndSettingsForShutdown();
+    static MainWindow* primaryWindow();
     static MainWindow* subsequentLaunchWindow();
     static bool sessionRestoreInProgress();
     MainWindow* createNewSessionWindow(bool activate = true);
