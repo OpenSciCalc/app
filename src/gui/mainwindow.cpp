@@ -30,6 +30,7 @@
 #include "gui/customkeypaddialog.h"
 #include "gui/dockcomboboxchevron.h"
 #include "gui/editorutils.h"
+#include "gui/fontdialogstyles.h"
 #include "gui/functionswidget.h"
 #include "gui/historywidget.h"
 #include "gui/userfunctionlistwidget.h"
@@ -12460,12 +12461,13 @@ void MainWindow::showFontDialog()
         options |= QFontDialog::DontUseNativeDialog;
     }
 #endif
-    bool ok;
-    QFont f = QFontDialog::getFont(&ok, m_widgets.display->font(), this,
-                                 tr("Editor and Results Font"), options);
-    if (!ok)
+    QFontDialog dialog(this);
+    dialog.setWindowTitle(tr("Editor and Results Font"));
+    dialog.setOptions(options);
+    FontDialogStyles::install(&dialog, m_widgets.display->font());
+    if (dialog.exec() != QDialog::Accepted)
         return;
-    setDisplayFont(f);
+    setDisplayFont(dialog.selectedFont());
 }
 
 void MainWindow::setDisplayFont(const QFont& font)

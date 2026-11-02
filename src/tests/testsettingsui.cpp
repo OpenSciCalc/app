@@ -6,11 +6,14 @@
 #include "core/mathdsl.h"
 #include "core/processlaunch.h"
 #include "gui/diagnosticsdialog.h"
+#include "gui/fontdialogstyles.h"
 #include "buildversion.h"
 
 #include <QFontDatabase>
+#include <QListView>
 #include <QOperatingSystemVersion>
 #include <QStyleHints>
+#include <QStringListModel>
 
 using namespace MainWindowTestHelpers;
 
@@ -56,6 +59,7 @@ private slots:
     void display_font_changes_update_all_sessions_and_windows_data();
     void display_font_changes_update_all_sessions_and_windows();
     void font_dialog_uses_platform_appropriate_options();
+    void font_dialog_offers_synthesized_styles_of_single_face_families();
     void appearance_defaults_select_theme_and_modern_styles();
     void appearance_presets_identify_saved_combinations_data();
     void appearance_presets_identify_saved_combinations();
@@ -1334,6 +1338,96 @@ void TestSettingsUi::font_dialog_uses_platform_appropriate_options()
 #endif
     QCOMPARE(actualOptions, expectedOptions);
     QCOMPARE(Settings::instance()->displayFont, initialFont);
+}
+
+void TestSettingsUi::font_dialog_offers_synthesized_styles_of_single_face_families()
+{
+    // Like Lucida Console, this font has only a regular style, so the font
+    // database lists no other style for it.
+    QString family;
+    for (const QString& candidate : QFontDatabase::families()) {
+        const QStringList styles = QFontDatabase::styles(candidate);
+        if (styles.size() == 1 && !QFontDatabase::isPrivateFamily(candidate)
+            && !QFontDatabase::italic(candidate, styles.constFirst())
+            && QFontDatabase::weight(candidate, styles.constFirst()) == QFont::Normal) {
+            family = candidate;
+            break;
+        }
+    }
+    if (family.isEmpty())
+        QSKIP("No installed font family has only a regular face.", );
+    const QStringList synthesized{QStringLiteral("Bold"), QStringLiteral("Italic"),
+                                  QStringLiteral("Bold Italic")};
+    QCOMPARE(FontDialogStyles::synthesizedStyles(family), synthesized);
+
+    const bool nativeDialogsDisabled = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+    const auto restoreDialogs = qScopeGuard([nativeDialogsDisabled]() {
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, nativeDialogsDisabled);
+    });
+
+    // 19 is not in the size list, so the dialog shows it only in the size box.
+    // It is also not a default UI font size, which the dialog falls back to
+    // when it loses the size.
+    QFont initialFont(family, 19);
+    initialFont.setBold(true);
+    Settings::instance()->displayFont = initialFont.toString();
+    MainWindow window(false);
+    bool handledDialog = false;
+    QTimer::singleShot(0, &window, [&]() {
+        auto* dialog = qobject_cast<QFontDialog*>(QApplication::activeModalWidget());
+        QVERIFY(dialog);
+        const auto closeDialog = qScopeGuard([dialog]() {
+            if (dialog->isVisible())
+                dialog->reject();
+        });
+        const QList<QListView*> lists = dialog->findChildren<QListView*>(Qt::FindDirectChildrenOnly);
+        QCOMPARE(lists.size(), 3);
+        QListView* styleList = lists.at(1);
+        auto* styleModel = qobject_cast<QStringListModel*>(styleList->model());
+        QVERIFY(styleModel);
+        QCOMPARE(styleModel->stringList(), QFontDatabase::styles(family) + synthesized);
+        QVERIFY(lists.at(2)->model()->rowCount() > 0);
+
+        // The saved bold font selects our Bold style, with the right size.
+        QCOMPARE(styleList->currentIndex().data().toString(), QStringLiteral("Bold"));
+        QFont current = dialog->currentFont();
+        QCOMPARE(current.family(), family);
+        QCOMPARE(current.weight(), QFont::Bold);
+        QVERIFY(!current.italic());
+        QCOMPARE(current.pointSize(), 19);
+
+        const auto selectStyle = [&](const QString& style) {
+            styleList->setCurrentIndex(styleModel->index(styleModel->stringList().indexOf(style)));
+            return dialog->currentFont();
+        };
+        current = selectStyle(QFontDatabase::styles(family).constFirst());
+        QCOMPARE(current.weight(), QFont::Normal);
+        QVERIFY(!current.italic());
+        QCOMPARE(current.pointSize(), 19);
+
+        // Going from Regular to Bold leaves the font Qt builds unchanged.
+        current = selectStyle(QStringLiteral("Bold"));
+        QCOMPARE(current.weight(), QFont::Bold);
+        QVERIFY(!current.italic());
+        QCOMPARE(current.pointSize(), 19);
+
+        current = selectStyle(QStringLiteral("Italic"));
+        QCOMPARE(current.weight(), QFont::Normal);
+        QVERIFY(current.italic());
+        QCOMPARE(current.pointSize(), 19);
+        static_cast<QDialog*>(dialog)->accept();
+        handledDialog = true;
+    });
+    QVERIFY(QMetaObject::invokeMethod(&window, "showFontDialog", Qt::DirectConnection));
+    QVERIFY(handledDialog);
+
+    QFont savedFont;
+    QVERIFY(savedFont.fromString(Settings::instance()->displayFont));
+    QCOMPARE(savedFont.family(), family);
+    QCOMPARE(savedFont.weight(), QFont::Normal);
+    QVERIFY(savedFont.italic());
+    QCOMPARE(savedFont.pointSize(), 19);
 }
 
 void TestSettingsUi::display_font_changes_update_all_sessions_and_windows_data()

@@ -41,6 +41,7 @@ gui/dockcomboboxchevron.h
 gui/dockliststyle.h
 gui/dockwidget.h
 gui/editor.h
+gui/fontdialogstyles.h
 gui/functiontooltiputils.h
 gui/functionswidget.h
 gui/historywidget.h
@@ -123,6 +124,7 @@ gui/dockcomboboxchevron.cpp
 gui/dockliststyle.cpp
 gui/dockwidget.h
 gui/editor.cpp
+gui/fontdialogstyles.cpp
 gui/functiontooltiputils.cpp
 gui/functionswidget.cpp
 gui/historywidget.cpp
@@ -490,6 +492,7 @@ gui/resultdisplay.cpp
 gui/splittertreeutils.cpp
 gui/syntaxhighlighter.cpp
 gui/editor.cpp
+gui/fontdialogstyles.cpp
 gui/themedlineedit.cpp
 gui/tooltipstyleutils.cpp
 gui/userfunctionlistwidget.cpp
