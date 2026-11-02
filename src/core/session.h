@@ -19,8 +19,14 @@ class Evaluator;
 class Session {
 private:
     typedef QList<HistoryEntry> History ;
-    History m_history;
-    int m_historyHead = 0; // Logical index 0 maps to physical m_historyHead.
+    // History is loaded on first use, so these change in const accessors.
+    mutable History m_history;
+    mutable int m_historyHead = 0; // Logical index 0 maps to physical m_historyHead.
+    // Restored entries stay as JSON until something reads the history.
+    // Sessions in hidden tabs then skip converting all their entries.
+    // m_history is empty while saved entries are waiting.
+    mutable QJsonArray m_savedHistory;
+    mutable qsizetype m_savedHistoryFirst = 0;
     std::unique_ptr<Evaluator> m_evaluator;
     QString m_name;
     QString m_editorText;
@@ -29,6 +35,9 @@ private:
     int physicalHistoryIndex(int logicalIndex) const;
     void normalizeHistoryOrder();
     void bindEvaluator();
+    bool hasSavedHistory() const { return m_savedHistory.size() > m_savedHistoryFirst; }
+    void loadSavedHistory() const;
+    void convertSavedHistory(const QJsonArray& history, qsizetype first) const;
 
 public:
     Session();
@@ -65,13 +74,18 @@ public:
 
     void addHistoryEntry(const HistoryEntry & entry);
     void appendSavedHistory(const QJsonArray& history);
+    void deferSavedHistory(const QJsonArray& history);
+    bool hasDeferredHistory() const { return hasSavedHistory(); }
+    QJsonArray serializedHistory() const;
     bool nextHistoryEntryReachesLimit() const;
     void insertHistoryEntry(const int index, const HistoryEntry & entry);
     void removeHistoryEntryAt(const int index);
-    int historySize() const { return m_history.size(); }
-    bool historyIsEmpty() const { return m_history.isEmpty(); }
+    int historySize() const;
+    bool historyIsEmpty() const { return historySize() == 0; }
     const HistoryEntry& historyEntryAtRef(const int index) const;
     HistoryEntry historyEntryAt(const int index) const;
+    // Reads one entry without loading the rest of the deferred history.
+    HistoryEntry peekHistoryEntry(const int index) const;
     QList<HistoryEntry> historyToList() const;
     void applyHistoryLimit();
     void clearHistory();

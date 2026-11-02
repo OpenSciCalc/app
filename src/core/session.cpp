@@ -128,13 +128,7 @@ void SessionSerialization::serialize(const Session& session, QJsonObject& json)
         : session.name();
     json[QLatin1String(SessionJsonKeys::Limit)] = session.historyLimit();
 
-    QJsonArray hist_entries;
-    for (int i = 0; i < session.historySize(); ++i) {
-        QJsonObject curr_entry_obj;
-        session.historyEntryAtRef(i).serialize(curr_entry_obj);
-        hist_entries.append(curr_entry_obj);
-    }
-    json[QLatin1String(SessionJsonKeys::History)] = hist_entries;
+    json[QLatin1String(SessionJsonKeys::History)] = session.serializedHistory();
 
     QJsonArray var_entries;
     const QList<Variable> variables = session.variablesToList();
@@ -246,7 +240,11 @@ int SessionSerialization::deserialize(Session& session, const QJsonObject& json,
     session.evaluator()->initializeBuiltInVariables();
 
     timing.next("Restore saved history entries (total)");
-    session.appendSavedHistory(json.value(QLatin1String(SessionJsonKeys::History)).toArray());
+    const QJsonArray history = json.value(QLatin1String(SessionJsonKeys::History)).toArray();
+    if (merge)
+        session.appendSavedHistory(history);
+    else
+        session.deferSavedHistory(history);
 
     timing.next("Restore saved session variables");
     QJsonArray var_obj = json[QLatin1String(SessionJsonKeys::Variables)].toArray();
@@ -297,14 +295,15 @@ void SessionSerialization::recoverAns(Session& session)
 {
     const EvaluationContext originalContext = currentEvaluationContextFromSettings();
     const bool hasAns = session.hasVariable("ans");
-    const bool hasContextHistory = session.historySize() > 0 && session.historyEntryAtRef(0).hasContext();
+    // Peek at single entries, so deferred history stays unconverted.
+    const bool hasContextHistory = session.historySize() > 0 && session.peekHistoryEntry(0).hasContext();
     const bool needsAnsRecovery = hasContextHistory || !hasAns || session.getVariable("ans").value().isNan();
     if (!needsAnsRecovery)
         return;
 
     Quantity recoveredValue = CMath::nan();
     for (int i = session.historySize() - 1; i >= 0; --i) {
-        const Quantity value = session.historyEntryAtRef(i).result();
+        const Quantity value = session.peekHistoryEntry(i).result();
         if (!value.isNan()) {
             recoveredValue = value;
             break;
@@ -344,6 +343,8 @@ Session::Session(QJsonObject& json)
 Session::Session(const Session& other)
     : m_history(other.m_history)
     , m_historyHead(other.m_historyHead)
+    , m_savedHistory(other.m_savedHistory)
+    , m_savedHistoryFirst(other.m_savedHistoryFirst)
     , m_evaluator(new Evaluator)
     , m_name(other.m_name)
     , m_editorText(other.m_editorText)
@@ -361,6 +362,8 @@ Session& Session::operator=(const Session& other)
 
     m_history = other.m_history;
     m_historyHead = other.m_historyHead;
+    m_savedHistory = other.m_savedHistory;
+    m_savedHistoryFirst = other.m_savedHistoryFirst;
     m_name = other.m_name;
     m_editorText = other.m_editorText;
     m_private = other.m_private;
@@ -469,6 +472,7 @@ bool Session::isBuiltInVariable(const QString & id) const
 
 void Session::addHistoryEntry(const HistoryEntry &entry)
 {
+    loadSavedHistory();
     const int limit = historyLimit();
     if (limit > 0) {
         if (m_history.size() < limit) {
@@ -485,8 +489,40 @@ void Session::addHistoryEntry(const HistoryEntry &entry)
 
 void Session::appendSavedHistory(const QJsonArray& history)
 {
-    const qsizetype first = m_historyLimit > 0
+    loadSavedHistory();
+    convertSavedHistory(history, m_historyLimit > 0
+        ? qMax(qsizetype(0), history.size() - m_historyLimit) : 0);
+}
+
+void Session::deferSavedHistory(const QJsonArray& history)
+{
+    if (!m_history.isEmpty() || hasSavedHistory()) {
+        appendSavedHistory(history);
+        return;
+    }
+    m_savedHistory = history;
+    m_savedHistoryFirst = m_historyLimit > 0
         ? qMax(qsizetype(0), history.size() - m_historyLimit) : 0;
+}
+
+void Session::loadSavedHistory() const
+{
+    if (!hasSavedHistory()) {
+        m_savedHistory = QJsonArray();
+        m_savedHistoryFirst = 0;
+        return;
+    }
+    StartupDiagnostics::Batch batch;
+    StartupDiagnostics::Scope timing("Load deferred session history");
+    const QJsonArray history = m_savedHistory;
+    const qsizetype first = m_savedHistoryFirst;
+    m_savedHistory = QJsonArray();
+    m_savedHistoryFirst = 0;
+    convertSavedHistory(history, first);
+}
+
+void Session::convertSavedHistory(const QJsonArray& history, qsizetype first) const
+{
     const qsizetype retained = history.size() - first;
     const qsizetype growth = m_historyLimit > 0
         ? qMin(retained, qsizetype(m_historyLimit) - m_history.size()) : retained;
@@ -508,14 +544,43 @@ void Session::appendSavedHistory(const QJsonArray& history)
     }
 }
 
+QJsonArray Session::serializedHistory() const
+{
+    if (hasSavedHistory()) {
+        // Write deferred entries back unchanged instead of converting them.
+        if (m_savedHistoryFirst == 0)
+            return m_savedHistory;
+        QJsonArray retained;
+        for (qsizetype i = m_savedHistoryFirst; i < m_savedHistory.size(); ++i)
+            retained.append(m_savedHistory.at(i));
+        return retained;
+    }
+
+    QJsonArray entries;
+    for (int i = 0; i < historySize(); ++i) {
+        QJsonObject entry;
+        historyEntryAtRef(i).serialize(entry);
+        entries.append(entry);
+    }
+    return entries;
+}
+
+int Session::historySize() const
+{
+    if (hasSavedHistory())
+        return int(m_savedHistory.size() - m_savedHistoryFirst);
+    return m_history.size();
+}
+
 bool Session::nextHistoryEntryReachesLimit() const
 {
     const int limit = historyLimit();
-    return limit > 0 && m_history.size() == limit - 1;
+    return limit > 0 && historySize() == limit - 1;
 }
 
 void Session::insertHistoryEntry(const int index, const HistoryEntry &entry)
 {
+    loadSavedHistory();
     normalizeHistoryOrder();
     m_history.insert(index, entry);
     trimHistory(m_history, historyLimit());
@@ -523,12 +588,14 @@ void Session::insertHistoryEntry(const int index, const HistoryEntry &entry)
 
 void Session::removeHistoryEntryAt(const int index)
 {
+    loadSavedHistory();
     normalizeHistoryOrder();
     m_history.removeAt(index);
 }
 
 const HistoryEntry& Session::historyEntryAtRef(const int index) const
 {
+    loadSavedHistory();
     return m_history.at(physicalHistoryIndex(index));
 }
 
@@ -537,8 +604,16 @@ HistoryEntry Session::historyEntryAt(const int index) const
     return historyEntryAtRef(index);
 }
 
+HistoryEntry Session::peekHistoryEntry(const int index) const
+{
+    if (hasSavedHistory())
+        return HistoryEntry(m_savedHistory.at(m_savedHistoryFirst + index).toObject());
+    return historyEntryAtRef(index);
+}
+
 QList<HistoryEntry> Session::historyToList() const
 {
+    loadSavedHistory();
     if (m_historyHead == 0)
         return m_history;
 
@@ -551,6 +626,14 @@ QList<HistoryEntry> Session::historyToList() const
 
 void Session::applyHistoryLimit()
 {
+    if (hasSavedHistory()) {
+        // Drop the oldest deferred entries, as trimming loaded ones would.
+        if (m_historyLimit > 0) {
+            m_savedHistoryFirst = qMax(m_savedHistoryFirst,
+                                       m_savedHistory.size() - m_historyLimit);
+        }
+        return;
+    }
     normalizeHistoryOrder();
     trimHistory(m_history, historyLimit());
 }
@@ -559,6 +642,8 @@ void Session::clearHistory()
 {
     m_history.clear();
     m_historyHead = 0;
+    m_savedHistory = QJsonArray();
+    m_savedHistoryFirst = 0;
 }
 
 void Session::addUserFunction(const UserFunction &func)

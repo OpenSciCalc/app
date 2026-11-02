@@ -76,6 +76,7 @@ private slots:
     void restored_functions_resolve_global_user_units();
     void quantity_copies_preserve_shared_dimensions();
     void startup_deserialization_reports_history_phases();
+    void deferred_history_round_trips_and_trims_without_loading();
     void startup_batched_timings_finish_after_flush();
     void startup_numeric_history_keeps_unit_registry_unloaded();
     void startup_applies_window_flags_before_polishing_panes_data();
@@ -89,6 +90,7 @@ private slots:
     void startup_reuses_initial_pane();
     void startup_shows_restored_session_on_first_show_data();
     void startup_shows_restored_session_on_first_show();
+    void startup_converts_hidden_tab_history_when_opened();
     void startup_hide_cancels_pending_show();
     void saved_window_ui_state_overrides_defaults_before_show();
     void visible_window_applies_restored_dock_and_keypad_layout();
@@ -819,10 +821,25 @@ void TestSessionsUi::startup_deserialization_reports_history_phases()
     });
     for (int i = 0; i < 2; ++i)
         QVERIFY(restored.deSerialize(saved, false));
+    // Restoring keeps the entries as JSON until something reads them.
+    QVERIFY(restored.hasDeferredHistory());
+    QCOMPARE(restored.historySize(), 3);
+    const auto phaseCalls = [](const QString& name) {
+        for (const auto& phase : StartupDiagnostics::snapshot().phases) {
+            if (phase.name == name)
+                return phase.calls;
+        }
+        return 0;
+    };
+    QCOMPARE(phaseCalls(QStringLiteral("Append restored history entry")), 0);
+    QCOMPARE(restored.historyEntryAtRef(0).renderedLines(), lines);
+    QVERIFY(!restored.hasDeferredHistory());
     StartupDiagnostics::firstPaintFinished();
     StartupDiagnostics::finishWhenIdle();
     const auto snapshot = StartupDiagnostics::snapshot();
     QVERIFY(snapshot.complete);
+    QCOMPARE(phaseCalls(QStringLiteral("Load deferred session history")), 1);
+    QCOMPARE(phaseCalls(QStringLiteral("Append restored history entry")), 3);
     const QStringList historyPhases {
         QStringLiteral("Initialize restored history entry"),
         QStringLiteral("Read saved history expressions"),
@@ -836,7 +853,8 @@ void TestSessionsUi::startup_deserialization_reports_history_phases()
         const auto phase = std::find_if(snapshot.phases.cbegin(), snapshot.phases.cend(),
                                        [&name](const auto& item) { return item.name == name; });
         QVERIFY2(phase != snapshot.phases.cend(), qPrintable(name));
-        QCOMPARE(phase->calls, 6);
+        // Recovering ans also reads single entries during each restore.
+        QVERIFY(phase->calls >= 3);
         QVERIFY(!phase->worker);
         QVERIFY(phase->firstStartNs >= 0);
         QVERIFY(phase->totalNs >= phase->longestNs);
@@ -844,6 +862,51 @@ void TestSessionsUi::startup_deserialization_reports_history_phases()
     QCOMPARE(restored.historySize(), 3);
     QCOMPARE(restored.historyEntryAtRef(0).renderedLines(), lines);
     QCOMPARE(restored.getVariable(QStringLiteral("ans")).value(), Quantity(42));
+}
+
+void TestSessionsUi::deferred_history_round_trips_and_trims_without_loading()
+{
+    Session source;
+    source.setHistoryLimit(0);
+    for (int i = 1; i <= 5; ++i)
+        source.addHistoryEntry(HistoryEntry(QString::number(i), Quantity(i)));
+    QJsonObject saved;
+    source.serialize(saved);
+    const QJsonArray savedHistory = saved.value(QLatin1String(SessionJsonKeys::History)).toArray();
+
+    Session restored;
+    QVERIFY(restored.deSerialize(saved, false));
+    QVERIFY(restored.hasDeferredHistory());
+    QCOMPARE(restored.historySize(), 5);
+    QCOMPARE(restored.getVariable(QStringLiteral("ans")).value(), Quantity(5));
+
+    // Saving writes the deferred entries back without converting them.
+    QJsonObject unchanged;
+    restored.serialize(unchanged);
+    QCOMPARE(unchanged.value(QLatin1String(SessionJsonKeys::History)).toArray(), savedHistory);
+    QVERIFY(restored.hasDeferredHistory());
+
+    // A lower limit drops the oldest deferred entries, as it does for loaded ones.
+    restored.setHistoryLimit(3);
+    QVERIFY(restored.hasDeferredHistory());
+    QCOMPARE(restored.historySize(), 3);
+    QJsonObject trimmed;
+    restored.serialize(trimmed);
+    const QJsonArray trimmedHistory = trimmed.value(QLatin1String(SessionJsonKeys::History)).toArray();
+    QCOMPARE(trimmedHistory.size(), 3);
+    QCOMPARE(HistoryEntry(trimmedHistory.first().toObject()).expr(), QStringLiteral("3"));
+    // Raising the limit again does not bring dropped entries back.
+    restored.setHistoryLimit(0);
+    QCOMPARE(restored.historySize(), 3);
+
+    const Session copy(restored);
+    QCOMPARE(copy.historySize(), 3);
+    QCOMPARE(restored.historyEntryAtRef(0).expr(), QStringLiteral("3"));
+    QVERIFY(!restored.hasDeferredHistory());
+    restored.addHistoryEntry(HistoryEntry(QStringLiteral("6"), Quantity(6)));
+    QCOMPARE(restored.historySize(), 4);
+    QCOMPARE(restored.historyEntryAtRef(3).expr(), QStringLiteral("6"));
+    QCOMPARE(copy.historyEntryAtRef(2).expr(), QStringLiteral("5"));
 }
 
 void TestSessionsUi::startup_batched_timings_finish_after_flush()
@@ -1241,6 +1304,68 @@ void TestSessionsUi::startup_shows_restored_session_on_first_show()
             themeCalls += phase.calls;
     }
     QCOMPARE(themeCalls, 1);
+}
+
+void TestSessionsUi::startup_converts_hidden_tab_history_when_opened()
+{
+    MainWindowStateGuard guard;
+    PrivateSessionStorage storage;
+    Settings* settings = guard.settings;
+    settings->hasNumberFormatStyleSetting = true;
+    settings->openPrivateTabOnStartup = false;
+    settings->windowState.clear();
+    settings->windowGeometry.clear();
+    const QString shown = QStringLiteral("Shown-Tab");
+    const QString hidden = QStringLiteral("Hidden-Tab");
+    for (const QString& name : {shown, hidden}) {
+        QVERIFY(QDir().mkpath(QFileInfo(storage.path(name)).path()));
+        writeFile(storage.path(name), QJsonDocument(sessionJson(name)).toJson());
+    }
+    settings->sessionLayoutJson = QString::fromUtf8(QJsonDocument(QJsonObject {
+        { QStringLiteral("scheme"), 1 },
+        { QStringLiteral("kind"), QStringLiteral("session-layout") },
+        { QStringLiteral("windows"), QJsonArray { QJsonObject {
+            { QStringLiteral("id"), QStringLiteral("saved") },
+            { QStringLiteral("root"), QJsonObject {
+                { QStringLiteral("type"), QStringLiteral("tabs") },
+                { QStringLiteral("active"), shown },
+                { QStringLiteral("tabs"), QJsonArray {
+                    QJsonObject { { QStringLiteral("name"), shown } },
+                    QJsonObject { { QStringLiteral("name"), hidden } }
+                } }
+            } }
+        } } }
+    }).toJson(QJsonDocument::Compact));
+    StartupDiagnostics::begin();
+    const auto finishRecording = qScopeGuard([]() {
+        StartupDiagnostics::firstPaintFinished();
+        StartupDiagnostics::finishWhenIdle();
+    });
+    const auto loadedHistories = []() {
+        for (const auto& phase : StartupDiagnostics::snapshot().phases) {
+            if (phase.name == QLatin1String("Load deferred session history"))
+                return phase.calls;
+        }
+        return 0;
+    };
+    MainWindow window;
+    window.showWhenReady();
+    QTRY_VERIFY(window.isVisible());
+    auto* display = window.findChild<ResultDisplay*>();
+    QVERIFY(display);
+    QTRY_COMPARE(display->session()->name(), shown);
+    QCoreApplication::processEvents();
+    // Only the tab on screen converts its saved history.
+    QCOMPARE(loadedHistories(), 1);
+
+    QTabBar* tabBar = paneWidgetForDisplay(display)->findChild<QTabBar*>();
+    QVERIFY(tabBar);
+    QTRY_COMPARE(tabBar->count(), 2);
+    QTest::mouseClick(tabBar, Qt::LeftButton, Qt::NoModifier, tabBar->tabRect(1).center());
+    QTRY_COMPARE(display->session()->name(), hidden);
+    QCOMPARE(loadedHistories(), 2);
+    QCOMPARE(display->session()->historySize(), 1);
+    QVERIFY(display->toPlainText().contains(QStringLiteral("42")));
 }
 
 void TestSessionsUi::startup_hide_cancels_pending_show()

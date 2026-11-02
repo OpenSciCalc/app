@@ -151,6 +151,7 @@
 #include <QUuid>
 
 #include <algorithm>
+#include <atomic>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -14237,11 +14238,32 @@ bool MainWindow::restoreSessionLayout(bool restoreHistory)
         QHash<QString, QPair<int, int>> viewportAnchors;
         QHash<QString, int> scrollValues;
 
-        for (const SessionLoadSpec& spec : sessionLoadSpecs) {
-            StartupDiagnostics::Scope fileTiming("Read and parse session JSON");
-            QJsonObject sessionJson;
-            if (!readValidSessionJson(spec.filePath, &sessionJson))
+        // Each file is independent, so read and parse them on several
+        // threads. Large sessions spend most of their restore time here.
+        const int specCount = int(sessionLoadSpecs.size());
+        std::vector<QJsonObject> parsedJsons(specCount);
+        std::vector<char> validJsons(specCount, 0);
+        std::atomic_int nextSpec{0};
+        const auto readSpecs = [&sessionLoadSpecs, &parsedJsons, &validJsons, &nextSpec, specCount]() {
+            for (int i = nextSpec++; i < specCount; i = nextSpec++) {
+                StartupDiagnostics::Scope fileTiming("Read and parse session JSON");
+                validJsons[i] = readValidSessionJson(sessionLoadSpecs.at(i).filePath, &parsedJsons[i]);
+            }
+        };
+        std::vector<std::unique_ptr<QThread>> readers;
+        for (int i = 1; i < qMin(QThread::idealThreadCount(), specCount); ++i) {
+            readers.emplace_back(QThread::create(readSpecs));
+            readers.back()->start();
+        }
+        readSpecs();
+        for (const auto& reader : readers)
+            reader->wait();
+
+        for (int i = 0; i < specCount; ++i) {
+            if (!validJsons[i])
                 continue;
+            const SessionLoadSpec& spec = sessionLoadSpecs.at(i);
+            QJsonObject sessionJson = parsedJsons[i];
 
             if (!restoreHistory)
                 sessionJson.remove(QLatin1String(SessionJsonKeys::History));
