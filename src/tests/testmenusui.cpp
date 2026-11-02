@@ -48,6 +48,7 @@ private slots:
     void disabled_menu_icons_keep_visible_state();
     void disabled_context_menu_labels_are_dimmed_data();
     void disabled_context_menu_labels_are_dimmed();
+    void themed_menu_labels_leave_room_for_shortcuts();
 };
 
 void TestMenusUi::disabled_context_menu_labels_are_dimmed_data()
@@ -127,6 +128,72 @@ void TestMenusUi::disabled_context_menu_labels_are_dimmed()
     guard.settings->menuAppearance = Settings::MenuAppearanceSystem;
     MenuStyle::refresh();
     QCOMPARE(action->icon().cacheKey(), original.cacheKey());
+}
+
+void TestMenusUi::themed_menu_labels_leave_room_for_shortcuts()
+{
+    // Emulate Windows 11, which sizes menu items more tightly than the
+    // Windows layout Qt uses to draw style sheet menus.
+    class CompactMenuStyle : public QProxyStyle {
+    public:
+        CompactMenuStyle() : QProxyStyle(QStringLiteral("Fusion")) {}
+        QSize sizeFromContents(ContentsType type, const QStyleOption* option, const QSize& size,
+                               const QWidget* widget) const override
+        {
+            QSize result = QProxyStyle::sizeFromContents(type, option, size, widget);
+            if (type == CT_MenuItem)
+                result.setWidth(size.width() + 24);
+            return result;
+        }
+    };
+    MainWindowStateGuard guard;
+    guard.settings->menuAppearance = Settings::MenuAppearanceSpeedCrunch;
+    QStyle* originalStyle = QApplication::style();
+    originalStyle->setParent(nullptr);
+    QApplication::setStyle(new CompactMenuStyle);
+    const auto restoreStyle = qScopeGuard([originalStyle]() {
+        QApplication::setStyle(originalStyle);
+    });
+    // The window installs its application-wide proxy around the compact style.
+    MainWindow window(false);
+    QMenu menu;
+    QAction* action = menu.addAction(QStringLiteral("Copy the last result\tCtrl+R"));
+    MenuStyle::apply(&menu);
+    QVERIFY(!menu.styleSheet().isEmpty());
+    menu.popup(QPoint(20, 20));
+    QCoreApplication::processEvents();
+    const QImage image = menu.grab().toImage();
+    const QRect row = imageRectForWidgetRect(image, menu.actionGeometry(action)).intersected(image.rect());
+    const QColor fill = image.pixelColor(row.left() + 1, row.center().y());
+    const auto inked = [&](int x) {
+        for (int y = row.top() + 2; y <= row.bottom() - 2; ++y) {
+            const QColor pixel = image.pixelColor(x, y);
+            if (qAbs(pixel.red() - fill.red()) + qAbs(pixel.green() - fill.green())
+                    + qAbs(pixel.blue() - fill.blue()) > 96)
+                return true;
+        }
+        return false;
+    };
+    int first = -1;
+    int last = -1;
+    for (int x = row.left(); x <= row.right(); ++x) {
+        if (inked(x)) {
+            if (first < 0)
+                first = x;
+            last = x;
+        }
+    }
+    QVERIFY(first >= 0);
+    int widestGap = 0;
+    int gap = 0;
+    for (int x = first; x <= last; ++x) {
+        gap = inked(x) ? 0 : gap + 1;
+        widestGap = qMax(widestGap, gap);
+    }
+    menu.hide();
+    // Word spaces are much narrower than the label-to-shortcut spacing.
+    QVERIFY2(widestGap >= 10 * image.devicePixelRatio(),
+             qPrintable(QStringLiteral("Widest gap: %1 px").arg(widestGap)));
 }
 
 void TestMenusUi::disabled_menu_icons_keep_visible_state_data()

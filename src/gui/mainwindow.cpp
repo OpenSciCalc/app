@@ -1205,6 +1205,14 @@ public:
         return rect;
     }
 
+    QSize sizeFromContents(ContentsType type, const QStyleOption* option, const QSize& size,
+                           const QWidget* widget = nullptr) const override
+    {
+        // This application-wide proxy also sizes themed menu items.
+        const QSize result = QProxyStyle::sizeFromContents(type, option, size, widget);
+        return type == CT_MenuItem ? MenuStyle::themedItemSize(option, size, result, widget) : result;
+    }
+
     void drawPrimitive(PrimitiveElement element,
                        const QStyleOption* option,
                        QPainter* painter,

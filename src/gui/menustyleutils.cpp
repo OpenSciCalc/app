@@ -27,6 +27,7 @@
 #include <QScopedValueRollback>
 #include <QProxyStyle>
 #include <QStyle>
+#include <QStyleFactory>
 #include <QStyleHints>
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
 #include <QAccessibilityHints>
@@ -715,6 +716,25 @@ void MenuStyle::apply(QWidget* widget)
     install();
     if (appearanceFilter())
         appearanceFilter()->apply(widget);
+}
+
+QSize MenuStyle::themedItemSize(const QStyleOption* option, const QSize& contents,
+                                const QSize& size, const QWidget* widget)
+{
+    // A themed menu's style sheet makes Qt draw its items with the Windows
+    // style layout, while Qt still sizes them with the platform style. Compact
+    // native metrics, such as Windows 11's, then let labels run into shortcuts.
+    if (qobject_cast<const QMenu*>(widget) == nullptr || widget->styleSheet().isEmpty())
+        return size;
+    static QPointer<QStyle> layoutStyle;
+    if (layoutStyle == nullptr) {
+        layoutStyle = QStyleFactory::create(QStringLiteral("Windows"));
+        if (layoutStyle == nullptr)
+            return size;
+        layoutStyle->setParent(qApp);
+    }
+    const QSize drawn = layoutStyle->sizeFromContents(QStyle::CT_MenuItem, option, contents, widget);
+    return QSize(qMax(size.width(), drawn.width()), size.height());
 }
 
 QIcon MenuStyle::themedIcon(const QIcon& source, const QPalette& palette)
