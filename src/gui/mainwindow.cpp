@@ -824,6 +824,26 @@ static bool isWaylandPlatform()
     return isWayland;
 }
 
+// Returns whether the startup window can create its hidden native window
+// before building the interface, while the font list loads on a worker.
+static bool canCreateNativeWindowDuringFontLoading()
+{
+    // The native menu bar on macOS creates the window early already.
+    if (QGuiApplication::platformName() == QLatin1String("cocoa") || isWaylandPlatform())
+        return false;
+    // The saved geometry can move the window to another screen. With equal
+    // scaling on every screen, that move cannot change the window's DPI and
+    // make Qt lay out the finished interface again.
+    const QList<QScreen*> screens = QGuiApplication::screens();
+    for (const QScreen* screen : screens) {
+        if (screen->devicePixelRatio() != screens.first()->devicePixelRatio()
+            || screen->logicalDotsPerInch() != screens.first()->logicalDotsPerInch()) {
+            return false;
+        }
+    }
+    return !screens.isEmpty();
+}
+
 QString colorSchemeRoleLabel(ColorScheme::Role role)
 {
     switch (role) {
@@ -9679,6 +9699,14 @@ MainWindow::MainWindow(bool restorePreviousSession)
     connect(qApp, &QApplication::focusChanged, this, &MainWindow::handleApplicationFocusChanged);
     qApp->installEventFilter(this);
 
+    if (this == primaryMainWindow() && canCreateNativeWindowDuringFontLoading()) {
+        // The first text widget below waits for the font list. Creating the
+        // hidden native window first lets that work overlap the font loading.
+        // The window flags and attributes that affect creation are set above.
+        timing.next("Create native window during font loading");
+        create();
+    }
+
     timing.next("Initialize window theme background");
     // Children created below inherit the window palette without a later pass.
     // Final theme application still refreshes palettes after settings restore.
@@ -9940,7 +9968,25 @@ void MainWindow::showWhenReady()
     const bool preserveStartupFocus = testAttribute(Qt::WA_ShowWithoutActivating);
     {
         StartupDiagnostics::Scope showTiming("Show native window and activate layout");
+        // Split show() at the native window creation and the Show event, so
+        // the report separates creating, laying out and showing the window.
+        const qint64 showStartNs = StartupDiagnostics::isRecording() ? StartupDiagnostics::now() : -1;
+        const bool created = testAttribute(Qt::WA_WState_Created);
+        m_nativeWindowCreatedNs = -1;
+        m_showEventNs = -1;
         show();
+        if (showStartNs >= 0 && m_showEventNs >= 0) {
+            qint64 layoutStartNs = showStartNs;
+            if (!created && m_nativeWindowCreatedNs >= 0) {
+                StartupDiagnostics::recordPhase("Create native window while showing",
+                                                showStartNs, m_nativeWindowCreatedNs);
+                layoutStartNs = m_nativeWindowCreatedNs;
+            }
+            StartupDiagnostics::recordPhase("Polish and lay out window before showing",
+                                            layoutStartNs, m_showEventNs);
+            StartupDiagnostics::recordPhase("Show window in window system",
+                                            m_showEventNs, StartupDiagnostics::now());
+        }
     }
     timing.next("Restore activation after showing window");
     setAttribute(Qt::WA_ShowWithoutActivating, false);
@@ -12838,6 +12884,8 @@ bool MainWindow::event(QEvent* e)
 {
     if (e != nullptr && e->type() == QEvent::WinIdChange && StartupDiagnostics::isRecording())
         m_nativeWindowCreatedNs = StartupDiagnostics::now();
+    if (e != nullptr && e->type() == QEvent::Show && StartupDiagnostics::isRecording())
+        m_showEventNs = StartupDiagnostics::now();
     if (e != nullptr && m_restoredDockLayoutTimer != nullptr && m_restoredDockLayoutTimer->isActive()) {
         if (e->type() == QEvent::Show)
             m_restoredDockLayoutDeadline = QDeadlineTimer(3000);
@@ -14250,8 +14298,11 @@ bool MainWindow::restoreSessionLayout(bool restoreHistory)
                 validJsons[i] = readValidSessionJson(sessionLoadSpecs.at(i).filePath, &parsedJsons[i]);
             }
         };
+        // A few readers give most of the gain. More threads mostly contend
+        // for the allocator and slow the UI thread, so leave one core for it.
+        const int readerCount = qBound(1, qMin(QThread::idealThreadCount() - 1, 4), specCount);
         std::vector<std::unique_ptr<QThread>> readers;
-        for (int i = 1; i < qMin(QThread::idealThreadCount(), specCount); ++i) {
+        for (int i = 1; i < readerCount; ++i) {
             readers.emplace_back(QThread::create(readSpecs));
             readers.back()->start();
         }

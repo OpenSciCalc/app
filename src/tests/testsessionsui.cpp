@@ -1299,11 +1299,30 @@ void TestSessionsUi::startup_shows_restored_session_on_first_show()
         QVERIFY(window.firstText.contains(QStringLiteral("42")));
     QCOMPARE(window.windowFlags().testFlag(Qt::WindowStaysOnTopHint), alwaysOnTop);
     int themeCalls = 0;
-    for (const auto& phase : StartupDiagnostics::snapshot().phases) {
+    const StartupDiagnostics::Phase* show = nullptr;
+    const StartupDiagnostics::Phase* layout = nullptr;
+    const StartupDiagnostics::Phase* system = nullptr;
+    const auto snapshot = StartupDiagnostics::snapshot();
+    for (const auto& phase : snapshot.phases) {
         if (phase.name == QLatin1String("Apply pane themes"))
             themeCalls += phase.calls;
+        else if (phase.name == QLatin1String("Show native window and activate layout"))
+            show = &phase;
+        else if (phase.name == QLatin1String("Polish and lay out window before showing"))
+            layout = &phase;
+        else if (phase.name == QLatin1String("Show window in window system"))
+            system = &phase;
     }
     QCOMPARE(themeCalls, 1);
+    // Showing splits into laying out the window and the window system's show.
+    QVERIFY(show);
+    QVERIFY(layout);
+    QVERIFY(system);
+    QCOMPARE(layout->calls, 1);
+    QCOMPARE(system->calls, 1);
+    QVERIFY(layout->firstStartNs >= show->firstStartNs);
+    QVERIFY(system->firstStartNs >= layout->firstStartNs + layout->totalNs);
+    QVERIFY(layout->totalNs + system->totalNs <= show->totalNs);
 }
 
 void TestSessionsUi::startup_converts_hidden_tab_history_when_opened()

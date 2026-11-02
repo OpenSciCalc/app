@@ -118,6 +118,7 @@ void TestEditorAppearanceUi::maximized_geometry_restore_records_native_window_cr
     const StartupDiagnostics::Phase* restore = nullptr;
     const StartupDiagnostics::Phase* creation = nullptr;
     const StartupDiagnostics::Phase* state = nullptr;
+    const StartupDiagnostics::Phase* earlyCreation = nullptr;
     for (const auto& phase : snapshot.phases) {
         if (phase.name == QLatin1String("Restore saved window geometry"))
             restore = &phase;
@@ -125,11 +126,16 @@ void TestEditorAppearanceUi::maximized_geometry_restore_records_native_window_cr
             creation = &phase;
         else if (phase.name == QLatin1String("Apply window state after native window creation"))
             state = &phase;
+        else if (phase.name == QLatin1String("Create native window during font loading"))
+            earlyCreation = &phase;
     }
     QVERIFY(restore);
-    if (window.menuBar()->isNativeMenuBar()) {
-        // The native menu bar creates the window before the restore, so
-        // there is no creation inside it to split out.
+    if (earlyCreation)
+        QVERIFY(earlyCreation->firstStartNs < restore->firstStartNs);
+    if (window.menuBar()->isNativeMenuBar() || earlyCreation) {
+        // The native menu bar, or the startup window during font loading,
+        // creates the window before the restore. There is no creation inside
+        // it to split out.
         QVERIFY(!creation);
         QVERIFY(!state);
     } else {
