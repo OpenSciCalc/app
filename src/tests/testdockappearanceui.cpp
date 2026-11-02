@@ -18,6 +18,7 @@ private slots:
     void dock_refresh_reuses_unchanged_appearance_work();
     void themed_header_metrics_refresh_after_font_change_data();
     void themed_header_metrics_refresh_after_font_change();
+    void themed_header_metrics_survive_list_reload();
     void dock_appearance_defaults_to_theme_and_persists();
     void dock_appearance_switches_all_windows_data();
     void dock_appearance_switches_all_windows();
@@ -141,6 +142,48 @@ void TestDockAppearanceUi::themed_header_metrics_refresh_after_font_change()
     nativeHeader.setFont(header->font());
     nativeHeader.ensurePolished();
     QCOMPARE(header->sizeHint().height(), nativeHeader.sizeHint().height());
+}
+
+void TestDockAppearanceUi::themed_header_metrics_survive_list_reload()
+{
+    MainWindowStateGuard guard;
+    guard.settings->userFunctionsDockVisible = true;
+    guard.settings->dockAppearance = Settings::DockAppearanceSpeedCrunch;
+    guard.settings->sessionLayoutJson.clear();
+    guard.settings->windowState.clear();
+    MainWindow window(false);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QCoreApplication::processEvents();
+    QDockWidget* dock = window.findChild<QDockWidget*>(QStringLiteral("UserFunctionsDock"));
+    QVERIFY(dock);
+    UserFunctionListWidget* list = dock->findChild<UserFunctionListWidget*>();
+    QVERIFY(list);
+    QHeaderView* header = list->findChild<QTreeWidget*>()->header();
+    const QString styleSheet = header->styleSheet();
+    QVERIFY(!styleSheet.isEmpty());
+    StartupDiagnostics::begin();
+    const auto finishRecording = qScopeGuard([]() {
+        StartupDiagnostics::firstPaintFinished();
+        StartupDiagnostics::finishWhenIdle();
+    });
+    const auto phaseCalls = [](const QString& name) {
+        for (const auto& phase : StartupDiagnostics::snapshot().phases) {
+            if (phase.name == name)
+                return phase.calls;
+        }
+        return 0;
+    };
+    // The direct theme pass measures the headers. Reloading the rows resets
+    // the list model before the deferred pass runs.
+    QVERIFY(QMetaObject::invokeMethod(&window, "colorSchemeChanged", Qt::DirectConnection));
+    const int measurements = phaseCalls(QStringLiteral("Measure native dock header metrics"));
+    QVERIFY(measurements > 0);
+    list->updateList();
+    QCoreApplication::processEvents();
+    QCOMPARE(phaseCalls(QStringLiteral("Measure native dock header metrics")), measurements);
+    QVERIFY(phaseCalls(QStringLiteral("Reuse native dock header metrics")) > 0);
+    QCOMPARE(header->styleSheet(), styleSheet);
 }
 
 void TestDockAppearanceUi::themed_headers_keep_native_scrollbar_styles()

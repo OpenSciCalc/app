@@ -9,6 +9,7 @@
 #include "core/unicodechars.h"
 #include "core/mathdsl.h"
 #include "gui/oklchutils.h"
+#include "gui/startupappearance.h"
 #include "gui/symbolfont.h"
 #include "gui/tooltipstyleutils.h"
 #include "gui/uiconfig.h"
@@ -523,15 +524,17 @@ void applyKeypadButtonStyle(QPushButton* button,
     // Qt repolishes a widget when its stylesheet changes, and that can reset
     // palette roles exposed through QPalette. Apply the stylesheet first, then
     // restore the semantic button/text colors so runtime theme changes keep the
-    // same inspectable palette roles as startup theme application.
-    button->setStyleSheet(keypadButtonStyleSheet(sourcePalette,
-                                                 colors.background,
-                                                 colors.foreground,
-                                                 colors.hoverBackground,
-                                                 colors.hoverForeground,
-                                                 colors.pressedBackground,
-                                                 colors.pressedForeground,
-                                                 classic));
+    // same inspectable palette roles as startup theme application. Identical
+    // stylesheets are skipped, since every assignment repolishes the button.
+    const QString styleSheet = keypadButtonStyleSheet(sourcePalette,
+                                                      colors.background,
+                                                      colors.foreground,
+                                                      colors.hoverBackground,
+                                                      colors.hoverForeground,
+                                                      colors.pressedBackground,
+                                                      colors.pressedForeground,
+                                                      classic);
+    StartupDiagnostics::setAppearanceStyleSheet(button, styleSheet);
     button->setPalette(keypadButtonPalette(sourcePalette,
                                            colors.background,
                                            colors.foreground));
@@ -894,7 +897,7 @@ void Keypad::updateButtonStyleSheets()
                 normalColors, m_primaryBackground, visualRoleForButton(i.key()));
             applyKeypadButtonStyle(button, palette(), colors, classic);
         } else {
-            button->setStyleSheet(fallbackStyleSheet);
+            StartupDiagnostics::setAppearanceStyleSheet(button, fallbackStyleSheet);
         }
     }
     for (int index = 0; index < m_customWidgets.size(); ++index) {
@@ -907,7 +910,7 @@ void Keypad::updateButtonStyleSheets()
                 normalColors, m_primaryBackground, role);
             applyKeypadButtonStyle(button, palette(), colors, classic);
         } else {
-            button->setStyleSheet(fallbackStyleSheet);
+            StartupDiagnostics::setAppearanceStyleSheet(button, fallbackStyleSheet);
         }
     }
 }

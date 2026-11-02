@@ -20,6 +20,7 @@ private slots:
     void maximized_geometry_restore_records_native_window_creation();
     void repeated_highlighting_preserves_styles_without_repolishing_data();
     void repeated_highlighting_preserves_styles_without_repolishing();
+    void keypad_theme_reapply_keeps_unchanged_button_styles();
     void editor_display_style_defaults_to_modern_and_persists();
     void editor_display_style_switches_all_windows_and_preserves_work();
     void editor_display_style_preserves_result_selection_and_copy();
@@ -245,6 +246,53 @@ void TestEditorAppearanceUi::repeated_highlighting_preserves_styles_without_repo
     QCOMPARE(display->viewport()->palette().color(QPalette::Base), surface);
     QCOMPARE(editor->viewport()->palette().color(QPalette::Base), surface);
     QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("12+34"));
+}
+
+void TestEditorAppearanceUi::keypad_theme_reapply_keeps_unchanged_button_styles()
+{
+    MainWindowStateGuard guard;
+    guard.settings->colorScheme = QStringLiteral("Custom");
+    guard.settings->customColorSchemeJson = themeJsonString(
+        QJsonObject{{QStringLiteral("background"), QStringLiteral("#310b28")}});
+    guard.settings->keypadMode = Settings::KeypadModeBasicWide;
+    MainWindow window(false);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QCoreApplication::processEvents();
+    Keypad* keypad = window.findChild<Keypad*>();
+    QVERIFY(keypad);
+    const QList<QPushButton*> buttons = keypad->findChildren<QPushButton*>();
+    QVERIFY(!buttons.isEmpty());
+    class StyleChangeCounter : public QObject {
+    public:
+        int changes = 0;
+        bool eventFilter(QObject*, QEvent* event) override
+        {
+            if (event->type() == QEvent::StyleChange)
+                ++changes;
+            return false;
+        }
+    } counter;
+    QStringList styles;
+    for (QPushButton* button : buttons) {
+        button->installEventFilter(&counter);
+        styles.append(button->styleSheet());
+    }
+
+    // Applying the same theme again must not repolish every keypad button.
+    QVERIFY(QMetaObject::invokeMethod(&window, "colorSchemeChanged", Qt::DirectConnection));
+    QCoreApplication::processEvents();
+    QCOMPARE(counter.changes, 0);
+    for (int i = 0; i < buttons.size(); ++i)
+        QCOMPARE(buttons.at(i)->styleSheet(), styles.at(i));
+
+    // A different theme must still restyle the buttons.
+    guard.settings->customColorSchemeJson = themeJsonString(
+        QJsonObject{{QStringLiteral("background"), QStringLiteral("#eeeeee")}});
+    QVERIFY(QMetaObject::invokeMethod(&window, "colorSchemeChanged", Qt::DirectConnection));
+    QCoreApplication::processEvents();
+    QVERIFY(counter.changes > 0);
+    QVERIFY(buttons.first()->styleSheet() != styles.first());
 }
 
 void TestEditorAppearanceUi::editor_display_style_defaults_to_modern_and_persists()

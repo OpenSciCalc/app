@@ -1059,11 +1059,31 @@ bool setStyleSheetIfChanged(QWidget* widget, const QString& styleSheet)
     return true;
 }
 
+// Theme colors keep 16 bits per channel, but stylesheets store them as
+// #rrggbb. Compare at 8 bits, so a stylesheet's copy of a theme color does
+// not count as a change.
+bool samePaletteColors(const QPalette& a, const QPalette& b)
+{
+    for (int group = 0; group < QPalette::NColorGroups; ++group) {
+        for (int role = 0; role < QPalette::NColorRoles; ++role) {
+            const QBrush& left = a.brush(QPalette::ColorGroup(group), QPalette::ColorRole(role));
+            const QBrush& right = b.brush(QPalette::ColorGroup(group), QPalette::ColorRole(role));
+            if (left.style() != Qt::SolidPattern || right.style() != Qt::SolidPattern) {
+                if (left != right)
+                    return false;
+            } else if (left.color().rgba() != right.color().rgba()) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 void setDockPaletteIfChanged(QWidget* widget, const QPalette& palette)
 {
     const QPalette current = widget->palette();
     // Matching colors must also keep the same explicit palette roles.
-    if (widget->testAttribute(Qt::WA_SetPalette) && current == palette
+    if (widget->testAttribute(Qt::WA_SetPalette) && samePaletteColors(current, palette)
         && current.resolveMask() == palette.resolveMask()) {
         StartupDiagnostics::appearanceAssignment(widget, true, false, true);
         return;
@@ -2091,29 +2111,20 @@ void applyDockContentAppearance(MainWindow* owner, QDockWidget* dock,
     }
 
     for (QHeaderView* header : dockContent->findChildren<QHeaderView*>()) {
-        const QPointer<QAbstractItemModel> measuredModel =
-            header->property("speedcrunchNativeHeaderModel").value<QPointer<QAbstractItemModel>>();
-        if (measuredModel != header->model()) {
-            header->setProperty("speedcrunchNativeHeaderMetrics", QVariant());
-            QAbstractItemModel* model = header->model();
-            if (model != nullptr) {
-                const auto invalidateMetrics = [header, model]() {
-                    if (header->model() == model)
-                        header->setProperty("speedcrunchNativeHeaderMetrics", QVariant());
-                };
-                QObject::connect(model, &QAbstractItemModel::headerDataChanged, header,
-                    [header, invalidateMetrics](Qt::Orientation orientation, int, int) {
-                        if (orientation == header->orientation())
-                            invalidateMetrics();
-                    });
-                QObject::connect(model, &QAbstractItemModel::modelReset, header, invalidateMetrics);
-            }
-            header->setProperty("speedcrunchNativeHeaderModel",
-                                QVariant::fromValue(QPointer<QAbstractItemModel>(model)));
-        }
         const auto metricInputs = [header]() {
-            return QVariantList {header->font(), MenuStyle::systemPalette(header),
+            QVariantList inputs {header->font(), MenuStyle::systemPalette(header),
                 header->logicalDpiX(), header->logicalDpiY(), int(header->layoutDirection()), header->count()};
+            // Compare the header data itself. Lists reset their models when
+            // they reload rows, but that does not change the header size.
+            if (const QAbstractItemModel* model = header->model()) {
+                for (int section = 0; section < header->count(); ++section) {
+                    inputs << model->headerData(section, header->orientation(), Qt::DisplayRole)
+                           << model->headerData(section, header->orientation(), Qt::FontRole)
+                           << model->headerData(section, header->orientation(), Qt::SizeHintRole)
+                           << model->headerData(section, header->orientation(), Qt::DecorationRole).isValid();
+                }
+            }
+            return inputs;
         };
         const QVariantList metrics = header->property("speedcrunchNativeHeaderMetrics").toList();
         const QPointer<QStyle> measuredStyle =
