@@ -14423,10 +14423,13 @@ void MainWindow::finishRestoreSessionLayout(const QJsonObject& layout,
     m_copyWidget = nullptr;
     // Keep the retained pane parented. A split layout can transfer it directly
     // to its new splitter without turning the whole pane into a top-level widget.
-    for (int i = m_widgets.splitContainer->count() - 1; i >= 0; --i) {
-        QWidget* child = m_widgets.splitContainer->widget(i);
-        if (child != reusablePane.get())
-            delete child;
+    {
+        StartupDiagnostics::Scope removeTiming("Remove previous session panes");
+        for (int i = m_widgets.splitContainer->count() - 1; i >= 0; --i) {
+            QWidget* child = m_widgets.splitContainer->widget(i);
+            if (child != reusablePane.get())
+                delete child;
+        }
     }
 
     m_paneSessionNames.clear();
@@ -14509,6 +14512,7 @@ void MainWindow::finishRestoreSessionLayout(const QJsonObject& layout,
             m_paneTabBars.insert(display, initialTabBar);
             m_tabBarDisplays.insert(initialTabBar, display);
         } else {
+            StartupDiagnostics::Scope createTiming("Create restored session pane widgets");
             display = new ResultDisplay();
             display->setFrameStyle(QFrame::NoFrame);
             display->setFont(displayFont);
@@ -14532,13 +14536,16 @@ void MainWindow::finishRestoreSessionLayout(const QJsonObject& layout,
         Session* paneSession = m_loadedSessions.value(activeName, nullptr);
         const QSignalBlocker displaySignals(display);
         const QSignalBlocker editorSignals(editor);
+        StartupDiagnostics::Scope bindTiming("Bind restored pane session");
         // The final historyChanged signal renders after settings and themes are ready.
         display->setSession(paneSession, false);
         if (paneSession != nullptr)
             editor->setSession(paneSession);
+        bindTiming.next("Restore pane editor state");
         restoreEditorState(editor,
                            editorStateFromNode(node, activeName),
                            paneSession != nullptr ? paneSession->editorText() : QString());
+        bindTiming.finish();
 
         if (firstDisplay == nullptr) {
             firstDisplay = display;
@@ -14568,6 +14575,7 @@ void MainWindow::finishRestoreSessionLayout(const QJsonObject& layout,
         if (type == QLatin1String("pane"))
             return createPane(node);
 
+        StartupDiagnostics::Scope splitterTiming("Create restored session splitter");
         QSplitter* splitter = new QSplitter(
             node.value(QStringLiteral("orientation")).toString() == QLatin1String("vertical")
                 ? Qt::Vertical
@@ -14575,6 +14583,8 @@ void MainWindow::finishRestoreSessionLayout(const QJsonObject& layout,
         splitter->setChildrenCollapsible(false);
         splitter->setHandleWidth(UiConfig::SessionPaneSplitterWidth);
         splitter->setStyleSheet(m_widgets.splitContainer->styleSheet());
+        // Child panes report their own timings.
+        splitterTiming.finish();
 
         const QJsonArray children = node.value(QStringLiteral("children")).toArray();
         for (const QJsonValue& childValue : children) {
@@ -14640,14 +14650,20 @@ void MainWindow::finishRestoreSessionLayout(const QJsonObject& layout,
     m_copyWidget = m_widgets.editor;
     updatePaneLoadedSessionCounts();
     m_session = nullptr;
-    activateSession(activeSession);
+    {
+        StartupDiagnostics::Scope activateTiming("Activate restored session");
+        activateSession(activeSession);
+    }
     // Apply globals to every restored tab after replacing the initial sessions.
     applyUserDefinitions();
     // Rebind retained widgets and docks before releasing the initial session.
-    const QList<Session*> retainedSessions = restoredSessions.values();
-    for (Session* oldSession : oldSessions) {
-        if (!retainedSessions.contains(oldSession))
-            delete oldSession;
+    {
+        StartupDiagnostics::Scope releaseTiming("Release replaced sessions");
+        const QList<Session*> retainedSessions = restoredSessions.values();
+        for (Session* oldSession : oldSessions) {
+            if (!retainedSessions.contains(oldSession))
+                delete oldSession;
+        }
     }
     m_conditions.autoAns = restoreHistory && !m_session->historyIsEmpty();
     updatePaneEditorCursorVisibility();
@@ -14658,10 +14674,17 @@ void MainWindow::finishRestoreSessionLayout(const QJsonObject& layout,
     // Existing controls keep their theme. Refresh the new panes below.
     restoreWindowThemeBackgrounds();
     refreshPaneThemes();
-    emit historyChanged();
-    emit variablesChanged();
-    emit functionsChanged();
-    emit unitsChanged();
+    {
+        // Listeners such as the docks refresh their contents here.
+        StartupDiagnostics::Scope notifyTiming("Notify restored history");
+        emit historyChanged();
+        notifyTiming.next("Notify restored variables");
+        emit variablesChanged();
+        notifyTiming.next("Notify restored functions");
+        emit functionsChanged();
+        notifyTiming.next("Notify restored units");
+        emit unitsChanged();
+    }
     restoreVisibleSessionViewports();
     const auto viewportTask = StartupDiagnostics::task("Deferred history viewport restoration");
     QTimer::singleShot(0, this, [this, viewportTask]() {
