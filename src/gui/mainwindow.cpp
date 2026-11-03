@@ -9975,7 +9975,9 @@ void MainWindow::showWhenReady()
         m_nativeWindowCreatedNs = -1;
         m_showEventNs = -1;
         show();
-        if (showStartNs >= 0 && m_showEventNs >= 0) {
+        // Test the runtime value first: without diagnostics, showStartNs is a
+        // constant and MSVC warns about a constant condition (C4127).
+        if (m_showEventNs >= 0 && showStartNs >= 0) {
             qint64 layoutStartNs = showStartNs;
             if (!created && m_nativeWindowCreatedNs >= 0) {
                 StartupDiagnostics::recordPhase("Create native window while showing",

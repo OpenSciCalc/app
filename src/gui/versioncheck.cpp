@@ -194,6 +194,7 @@ public:
     }
 
     static void markVersionNotified(const QString& version);
+    static bool isCheckDue();
 
 signals:
     void requestDispatched();
@@ -204,7 +205,6 @@ signals:
 
 private:
     void markCheckAttempted();
-    static bool isCheckDue();
     void storeFetchedVersion(const QString& version);
     bool shouldNotifyForVersion(const QString& version) const;
     QNetworkAccessManager* m_manager = nullptr;
