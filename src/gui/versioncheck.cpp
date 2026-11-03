@@ -204,7 +204,7 @@ signals:
 
 private:
     void markCheckAttempted();
-    bool isCheckDue() const;
+    static bool isCheckDue();
     void storeFetchedVersion(const QString& version);
     bool shouldNotifyForVersion(const QString& version) const;
     QNetworkAccessManager* m_manager = nullptr;
@@ -261,6 +261,12 @@ void VersionCheck::checkForUpdateIfDue()
 
     if (m_requestPending) {
         versionCheckDebug() << "Update check skipped: request already in progress.";
+        return;
+    }
+    // Start no network thread when the schedule rules the check out. The worker
+    // checks again under the lock, so two windows don't both claim one check.
+    if (!VersionCheckWorker::isCheckDue()) {
+        versionCheckDebug() << "Update check skipped: next check not due yet.";
         return;
     }
     startRequest(CheckTriggerAutomatic);
@@ -506,7 +512,7 @@ void VersionCheckWorker::markCheckAttempted()
     versionCheckDebug() << "Recorded update check timestamp (UTC msecs):" << now;
 }
 
-bool VersionCheckWorker::isCheckDue() const
+bool VersionCheckWorker::isCheckDue()
 {
     StartupDiagnostics::Scope timing("Check update schedule");
     QSettings settings = updateCheckSettings();
