@@ -34,7 +34,8 @@
 namespace {
 
 static const char WEBSITE_URL[] = "https://speedcrunch.org";
-static const char VERSION_URL[] = "https://speedcrunch.org/version";
+// The bare domain redirects here, which costs a second TLS connection.
+static const char VERSION_URL[] = "https://www.speedcrunch.org/version";
 static const char LAST_CHECK_KEY[] = "updates/lastVersionCheckUtcMsecs";
 static const char LAST_FETCHED_VERSION_KEY[] = "updates/lastFetchedVersion";
 static const char LAST_NOTIFIED_VERSION_KEY[] = "updates/lastNotifiedVersion";
