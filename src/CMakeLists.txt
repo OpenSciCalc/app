@@ -259,6 +259,13 @@ qt_add_translations(${APPLICATION_NAME}
     QM_FILES_OUTPUT_VARIABLE speedcrunch_QM_FILES
 )
 set(speedcrunch_TRANSLATION_TARGETS ${APPLICATION_NAME})
+# Qt creates this target later, so it can't be looked up here. Qt 6.7 and
+# later name it after the project, older Qt after the target.
+if(Qt6LinguistTools_VERSION VERSION_LESS 6.7)
+    set(speedcrunch_LRELEASE_TARGET ${APPLICATION_NAME}_lrelease)
+else()
+    set(speedcrunch_LRELEASE_TARGET ${PROJECT_NAME}_lrelease)
+endif()
 
 target_compile_definitions(${APPLICATION_NAME}
     PRIVATE
@@ -429,7 +436,11 @@ if(BUILD_TESTING)
 endif()
 
 # Embed the same generated catalogs in the application and test executables.
+# Make and Visual Studio copy the lrelease rule into every target that embeds
+# the catalogs. Build them once first, so the copies find them up to date
+# instead of all writing the same files at the same time.
 foreach(translation_target IN LISTS speedcrunch_TRANSLATION_TARGETS)
+    add_dependencies(${translation_target} ${speedcrunch_LRELEASE_TARGET})
     qt_add_resources(${translation_target} "${translation_target}_translations"
         PREFIX "/locale"
         BASE "${CMAKE_CURRENT_BINARY_DIR}"
