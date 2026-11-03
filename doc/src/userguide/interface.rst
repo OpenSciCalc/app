@@ -1121,7 +1121,7 @@ Help
     Update checks are enabled in official SpeedCrunch builds. Other distributors
     can choose whether to enable them. When enabled, this menu entry is available
     and SpeedCrunch also checks for updates after the window first paints,
-    at most once every 24 hours.
+    at most once a week.
     Each network request has a five-second deadline, including redirects.
     Receiving data does not extend that deadline.
     Oversized update responses are rejected before their contents are parsed

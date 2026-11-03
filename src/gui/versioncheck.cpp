@@ -39,7 +39,7 @@ static const char VERSION_URL[] = "https://www.speedcrunch.org/version";
 static const char LAST_CHECK_KEY[] = "updates/lastVersionCheckUtcMsecs";
 static const char LAST_FETCHED_VERSION_KEY[] = "updates/lastFetchedVersion";
 static const char LAST_NOTIFIED_VERSION_KEY[] = "updates/lastNotifiedVersion";
-const qint64 CHECK_INTERVAL_MSECS = 24LL * 60LL * 60LL * 1000LL;
+const qint64 CHECK_INTERVAL_MSECS = 7LL * 24LL * 60LL * 60LL * 1000LL;
 constexpr qint64 MAX_VERSION_RESPONSE_BYTES = 1024;
 constexpr int VERSION_REQUEST_TIMEOUT_MSECS = 5000;
 Q_LOGGING_CATEGORY(lcVersionCheck, "speedcrunch.updatecheck")
