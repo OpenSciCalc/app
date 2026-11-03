@@ -701,6 +701,7 @@ void MenuStyle::install()
 void MenuStyle::refresh()
 {
     // A theme file can change without changing its saved name.
+    ColorScheme::clearCache();
     cachedThemeColors.valid = false;
     GtkMenuPalette::invalidate();
     install();

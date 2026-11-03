@@ -59,24 +59,64 @@ QVector<QString> ColorScheme::fileSystemSearchPaths()
 
 bool ColorScheme::isBuiltInName(const QString& name)
 {
+    // Built-in resources never change while the app runs.
+    static QHash<QString, bool> builtInNames;
+    const auto cached = builtInNames.constFind(name);
+    if (cached != builtInNames.constEnd())
+        return cached.value();
     const QString resourceName = builtInResourceName(name);
-    if (resourceName.isEmpty())
-        return false;
-    return loadFromFile(QStringLiteral(":/color-schemes/%1.%2").arg(resourceName, COLOR_SCHEME_EXTENSION)).isValid();
+    const bool builtIn = !resourceName.isEmpty()
+        && loadFromFile(QStringLiteral(":/color-schemes/%1.%2").arg(resourceName, COLOR_SCHEME_EXTENSION)).isValid();
+    builtInNames.insert(name, builtIn);
+    return builtIn;
 }
 
-QString ColorScheme::filePathForName(const QString& name)
+namespace {
+struct NamedScheme {
+    QString path;
+    ColorScheme scheme;
+};
+}
+
+// Theme lookups repeat for every widget that applies the theme. Without this,
+// each lookup for a built-in theme first fails to open a file in the user theme folder.
+static QHash<QString, NamedScheme>& namedSchemeCache()
 {
+    static QHash<QString, NamedScheme> cache;
+    return cache;
+}
+
+static NamedScheme findNamedScheme(const QString& name)
+{
+    auto& cache = namedSchemeCache();
+    const auto cached = cache.constFind(name);
+    if (cached != cache.constEnd())
+        return cached.value();
+    NamedScheme found;
     for (const auto& path : colorSchemeSearchPaths()) {
         const QString baseName = path.startsWith(QLatin1Char(':'))
             ? builtInResourceName(name) : name;
         if (baseName.isEmpty())
             continue;
         const QString fileName = QString("%1/%2.%3").arg(path, baseName, COLOR_SCHEME_EXTENSION);
-        if (loadFromFile(fileName).isValid())
-            return fileName;
+        const ColorScheme scheme = ColorScheme::loadFromFile(fileName);
+        if (scheme.isValid()) {
+            found = {fileName, scheme};
+            break;
+        }
     }
-    return QString();
+    cache.insert(name, found);
+    return found;
+}
+
+void ColorScheme::clearCache()
+{
+    namedSchemeCache().clear();
+}
+
+QString ColorScheme::filePathForName(const QString& name)
+{
+    return findNamedScheme(name).path;
 }
 
 static QColor getFallbackColor(ColorScheme::Role role)
@@ -150,6 +190,8 @@ bool ColorScheme::hasColorForRole(Role role) const
 
 QStringList ColorScheme::enumerate()
 {
+    // Listing the themes again also picks up changes to their files.
+    clearCache();
     QMap<QString, void*> colorSchemes;
     for (auto& searchPath : colorSchemeSearchPaths()) {
         QDir dir(searchPath);
@@ -178,10 +220,7 @@ ColorScheme ColorScheme::loadFromFile(const QString& path)
 
 ColorScheme ColorScheme::loadByName(const QString& name)
 {
-    const QString fileName = filePathForName(name);
-    if (!fileName.isEmpty())
-        return loadFromFile(fileName);
-    return ColorScheme();
+    return findNamedScheme(name).scheme;
 }
 
 QJsonObject ColorScheme::toJsonObject() const

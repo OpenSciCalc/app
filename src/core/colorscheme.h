@@ -48,6 +48,8 @@ public:
     static QString filePathForName(const QString& name);
     static ColorScheme loadFromFile(const QString& path);
     static ColorScheme loadByName(const QString& name);
+    // Lookups by name are cached until the theme list is read again or this is called.
+    static void clearCache();
     static ColorScheme fromJsonObject(const QJsonObject& object);
     static QVector<QPair<QString, Role>> roleNames();
 
