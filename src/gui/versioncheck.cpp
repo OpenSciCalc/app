@@ -193,7 +193,7 @@ public:
         timeout->start(response->deadline.remainingTime());
     }
 
-    void markVersionNotified(const QString& version);
+    static void markVersionNotified(const QString& version);
 
 signals:
     void requestDispatched();
@@ -288,6 +288,7 @@ void VersionCheck::handleReplyFinished(QNetworkReply::NetworkError error, const 
                                       bool comparable, int comparison, bool shouldNotify)
 {
     m_requestPending = false;
+    stopNetworkThread();
 
     versionCheckDebug() << "Update check response received."
                             << "HTTP status:" << httpStatus;
@@ -320,8 +321,7 @@ void VersionCheck::handleReplyFinished(QNetworkReply::NetworkError error, const 
     } else if (comparison > 0) {
         if (shouldNotify) {
             versionCheckDebug() << "Newer version found; showing update dialog.";
-            showUpdateDialog(m_parentWindow, latestVersion,
-                             m_trigger == CheckTriggerAutomatic ? m_networkWorker : nullptr);
+            showUpdateDialog(m_parentWindow, latestVersion, m_trigger == CheckTriggerAutomatic);
         } else {
             versionCheckDebug() << "Newer version found, but user was already notified for this version.";
         }
@@ -391,7 +391,7 @@ bool tryParseVersion(const QString& version, QVector<qulonglong>* components)
 }
 
 void VersionCheck::showUpdateDialog(QWidget* parent, const QString& latestVersion,
-                                   VersionCheckWorker* notificationWorker)
+                                    bool recordNotification)
 {
     versionCheckDebug() << "Displaying update dialog for version" << latestVersion;
 
@@ -415,13 +415,9 @@ void VersionCheck::showUpdateDialog(QWidget* parent, const QString& latestVersio
     QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     layout->addWidget(buttons);
 
-    if (notificationWorker) {
-        QObject::connect(&dialog, &QDialog::finished, notificationWorker,
-                         [notificationWorker, latestVersion]() {
-            notificationWorker->markVersionNotified(latestVersion);
-        }, Qt::QueuedConnection);
-    }
     dialog.exec();
+    if (recordNotification)
+        VersionCheckWorker::markVersionNotified(latestVersion);
 }
 
 void VersionCheck::showUpToDateDialog(QWidget* parent, const QString& currentVersion)
@@ -530,6 +526,17 @@ bool VersionCheckWorker::isCheckDue()
     return due;
 }
 
+void VersionCheck::stopNetworkThread()
+{
+    // A check needs the thread only while its request runs. Stopping it here
+    // deletes the worker, so a later check starts a new one.
+    if (!m_networkThread)
+        return;
+    m_networkThread->quit();
+    m_networkThread = nullptr;
+    m_networkWorker = nullptr;
+}
+
 void VersionCheck::startRequest(CheckTrigger trigger)
 {
     m_trigger = trigger;
@@ -550,7 +557,10 @@ void VersionCheck::startRequest(CheckTrigger trigger)
         connect(m_networkWorker, &VersionCheckWorker::requestFinished,
                 this, &VersionCheck::handleReplyFinished, Qt::QueuedConnection);
         connect(m_networkWorker, &VersionCheckWorker::requestSkipped,
-                this, [this]() { m_requestPending = false; }, Qt::QueuedConnection);
+                this, [this]() {
+            m_requestPending = false;
+            stopNetworkThread();
+        }, Qt::QueuedConnection);
         // Wake diagnostics after setup without retaining a pointer to the window.
         connect(m_networkWorker, &VersionCheckWorker::requestDispatched,
                 qApp, []() {}, Qt::QueuedConnection);

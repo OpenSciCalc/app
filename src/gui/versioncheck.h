@@ -38,13 +38,14 @@ private:
                              int httpStatus, const QString& errorString,
                              bool comparable, int comparison, bool shouldNotify);
     static void showUpdateDialog(QWidget* parent, const QString& latestVersion,
-                                 VersionCheckWorker* notificationWorker);
+                                 bool recordNotification);
     static void showUpToDateDialog(QWidget* parent, const QString& currentVersion);
     static void showNoConnectivityDialog(QWidget* parent);
     static void showVerificationFailedDialog(QWidget* parent);
     static bool isConnectivityError(QNetworkReply::NetworkError error);
 
     void startRequest(CheckTrigger trigger);
+    void stopNetworkThread();
 
     QPointer<QWidget> m_parentWindow;
     QPointer<QThread> m_networkThread;
