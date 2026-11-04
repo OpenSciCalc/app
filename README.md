@@ -1,6 +1,6 @@
 <img src="https://upload.wikimedia.org/wikipedia/commons/9/93/GPLv3_Logo.svg?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=original" height="60px" link="LICENSE.md"/>
 
-# SpeedCrunch
+# OpenSciCalc
 OpenSciCalc is a high-precision scientific calculator.
 It features a syntax-highlighted scrollable display and is designed to be fully used via keyboard. Some distinctive
 features are auto-completion of functions and variables, a formula book, and quick
