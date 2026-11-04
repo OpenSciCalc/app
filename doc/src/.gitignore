@@ -1,5 +1,0 @@
-/_build*
-locale/pot/.doctrees
-*.pyc
-__pycache__
-*.mo

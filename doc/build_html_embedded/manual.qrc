@@ -1,8 +1,0 @@
-<RCC>
-  <qresource prefix="/manual">
-    <!-- Ship English-only manual for now. -->
-
-    <file alias="manual-en_US.qch">en_US/manual-en_US.qch</file>
-    <file alias="manual-en_US.qhc">en_US/manual-en_US.qhc</file>
-  </qresource>
-</RCC>
