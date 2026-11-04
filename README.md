@@ -1,4 +1,4 @@
-<a href="https://github.com/OpenScicalc/app/tree/gh-pages?tab=License-1-ov-file"><img src="https://upload.wikimedia.org/wikipedia/commons/9/93/GPLv3_Logo.svg?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=original" height="60px"/></a>
+<a href="LICENSE.md"><img src="https://upload.wikimedia.org/wikipedia/commons/9/93/GPLv3_Logo.svg?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=original" height="60px"/></a>
 
 <a href="https://openscicalc.github.io/ios-download-instructions"><img src="https://raw.githubusercontent.com/OpenScicalc/app/a97991487e5df615313b28cf4da7cb282df59de8/assets/Download_on_the_App_Store_Badge.svg" height="40px" link="LICENSE.md"/></a>
 
